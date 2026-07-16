@@ -1,0 +1,36 @@
+Principe :
+
+Cline → appelle http://localhost:4000/v1/chat/completions
+Proxy → appelle LM Studio http://localhost:1234/v1/chat/completions
+Proxy → ré-émet les tokens + envoie des keep-alive toutes les 20s
+
+
+Structure :
+
+	ton-projet/
+	│
+	├── .venv/
+	├── proxy.py   👈 ICI
+	└── ...
+
+
+Paramétrage openAI dans Cline : http://127.0.0.1:4000/v1
+
+cd ton-projet
+python -m venv .venv
+
+Powershell :
+	.venv\Scripts\Activate.ps1
+	pip install fastapi uvicorn httpx sse-starlette
+
+Depuis le dossier du projet (avec venv activé) :
+	uvicorn proxy:app --host 127.0.0.1 --port 4000
+
+
+Cline (VSCode)
+      ↓
+http://localhost:4000/v1/chat/completions
+      ↓
+proxy.py (FastAPI)
+      ↓
+LM Studio (localhost:1234)

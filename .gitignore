@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual Environment
+venv/
+.venv/
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+
+# Uploads et Outputs (fichiers temporaires)
+uploads/*.mp3
+uploads/*.wav
+uploads/*.flac
+outputs/*.mid
+outputs/*.xml
+outputs/*.musicxml
+outputs/*.pdf
+
+# Audio files (fichiers lourds)
+*.mp3
+*.wav
+*.flac
+*.mp4
+*.ogg
+*.wma
+*.aac
+
+# MIDI files (fichiers de test)
+*.mid
+*.midi
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+
+# Windows
+*.lnk
+*.url
+
+# macOS
+Spotlight-V*
+.DS_Store

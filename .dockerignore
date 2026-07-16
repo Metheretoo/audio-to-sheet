@@ -1,0 +1,28 @@
+# Fichiers et dossiers spécifiques à l'hôte Windows
+venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Dossiers d'IDE
+.vscode/
+.idea/
+.gemini/
+
+# Git
+.git/
+.gitignore
+
+# Fichiers temporaires ou générés
+temp/
+output/
+*.mid
+*.xml
+*.wav
+*.mp3
+
+# README et documentation (optionnel, mais allège l'image)
+# PROGRESS.md
+# v3-specs/

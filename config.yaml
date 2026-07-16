@@ -1,0 +1,264 @@
+# AudioScore — Configuration centralisée
+# Tous les paramètres par défaut du pipeline de transcription
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODÈLES DE TRANSCRIPTION
+# ─────────────────────────────────────────────────────────────────────────────
+transcriber:
+  default: "piano_transcription"  # basic_pitch | piano_transcription | transkun | hft | ensemble
+  models:
+    basic_pitch:
+      model_path: "models/basic_pitch"
+      model_type: "onnx"  # onnx | pytorch
+      onset_threshold: 0.3
+      frame_threshold: 0.3
+      minimum_note_length: 58.0  # ms
+      multiple_pitch_bends: false
+      melodia_trick: true
+    piano_transcription:
+      model_path: "models/piano_transcription"
+      model_type: "onnx"
+      onset_threshold: 0.25
+      frame_threshold: 0.3
+      minimum_note_length: 50.0
+      hq_mode: true
+    transkun:
+      model_path: "models/transkun"
+      model_type: "onnx"
+      onset_threshold: 0.3
+      frame_threshold: 0.3
+    hft:
+      model_path: "models/hft"
+      model_type: "onnx"
+      onset_threshold: 0.25
+      frame_threshold: 0.3
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ENSEMBLE VOTING (nouveau)
+  # ─────────────────────────────────────────────────────────────────────────────
+  ensemble:
+    enabled: false
+    models:
+      - name: "piano_transcription"
+        weight: 1.5
+        onset_weight: 1.2
+        pitch_weight: 1.0
+        duration_weight: 1.0
+      - name: "basic_pitch"
+        weight: 1.0
+        onset_weight: 1.0
+        pitch_weight: 1.0
+        duration_weight: 0.8
+      - name: "transkun"
+        weight: 1.3
+        onset_weight: 1.1
+        pitch_weight: 1.1
+        duration_weight: 1.1
+      - name: "hft"
+        weight: 1.2
+        onset_weight: 1.0
+        pitch_weight: 1.0
+        duration_weight: 1.0
+    onset_tolerance: 0.05      # Tolérance temporelle pour grouper les notes (secondes)
+    pitch_tolerance: 1         # Tolérance en demi-tons pour considérer même note
+    min_votes: 2               # Votes minimum pour garder une note
+    velocity_aggregation: "weighted_mean"  # "max" | "mean" | "weighted_mean"
+    duration_aggregation: "median"         # "median" | "mean" | "weighted_mean"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SÉPARATION AUDIO (DEMUCS)
+# ─────────────────────────────────────────────────────────────────────────────
+demucs:
+  enabled: true
+  model: "htdemucs"  # htdemucs | htdemucs_ft | mdx_extra
+  device: "auto"     # auto | cuda | mps | cpu
+  shifts: 1          # nombre de shifts pour test-time augmentation
+  overlap: 0.25      # chevauchement entre segments
+  segment_length: 7.8  # secondes
+  two_stems: "piano" # piano | vocals | drums | bass | other
+
+# ─────────────────────────────────────────────────────────────────────────────
+# QUANTIFICATION RYTHMIQUE
+# ─────────────────────────────────────────────────────────────────────────────
+quantization:
+  default: "standard"  # none | light | standard | heavy | rubato | triplets
+  levels:
+    none:
+      grid_resolution: 0.0625      # 1/16 note
+      ioi_tolerance: 0.0
+      swing_ratio: 1.0
+      detect_tuples: false
+    light:
+      grid_resolution: 0.125       # 1/8 note
+      ioi_tolerance: 0.1
+      swing_ratio: 1.0
+      detect_tuples: false
+    standard:
+      grid_resolution: 0.25        # 1/4 note
+      ioi_tolerance: 0.15
+      swing_ratio: 1.0
+      detect_tuples: true
+    heavy:
+      grid_resolution: 0.5         # 1/2 note
+      ioi_tolerance: 0.25
+      swing_ratio: 1.0
+      detect_tuples: true
+    rubato:
+      grid_resolution: 0.0625      # grille fine pour capturer le rubato
+      ioi_tolerance: 0.05
+      swing_ratio: 1.0
+      detect_tuples: false
+      adaptive_tempo: true         # tempo variable par mesure
+    triplets:
+      grid_resolution: 0.1667      # base triolet (1/6)
+      ioi_tolerance: 0.1
+      swing_ratio: 1.0
+      detect_tuples: true
+      tuple_types: ["triplet", "quadruplet"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SÉPARATION MAINS (VOICE SPLITTING)
+# ─────────────────────────────────────────────────────────────────────────────
+hand_split:
+  method: "dynamic"  # fixed | dynamic | ml
+  fixed_split_point: 57  # MIDI note (A3 = 57)
+  dynamic:
+    analyze_range: 24      # octaves à analyser autour du split
+    hand_overlap: 2        # notes de chevauchement autorisées
+    density_weight: 0.6    # poids densité notes vs registre
+  ml:
+    model_path: "models/hand_split.onnx"
+    confidence_threshold: 0.6
+    fallback: "dynamic"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DÉTECTION TEMPO
+# ─────────────────────────────────────────────────────────────────────────────
+tempo:
+  detector: "librosa"  # librosa | madmom | beatnet
+  min_bpm: 40
+  max_bpm: 220
+  default_bpm: 120
+  madmom:
+    model: "DBNBeatTrackingProcessor"
+    fps: 100
+  beatnet:
+    model_path: "models/beatnet.onnx"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DÉTECTION TONALITÉ
+# ─────────────────────────────────────────────────────────────────────────────
+key:
+  detector: "krumhansl"  # krumhansl | keyfinder | madmom
+  krumhansl:
+    use_major_minor_profiles: true
+    profile_weight: 1.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DÉTECTION PÉDALE & ORNEMENTS
+# ─────────────────────────────────────────────────────────────────────────────
+pedal:
+  enabled: true
+  onset_threshold: 0.3
+  release_threshold: 0.2
+  min_pedal_duration: 0.1  # secondes
+
+ornaments:
+  enabled: true
+  grace_note_max_duration: 0.15  # secondes
+  trill_min_speed: 8  # Hz
+  mordent_max_duration: 0.2
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GESTION MATÉRIEL (GPU/CPU)
+# ─────────────────────────────────────────────────────────────────────────────
+device:
+  preference: "auto"  # auto | cuda | mps | cpu
+  cpu_threads: 0     # 0 = auto (min(8, cpu_count))
+  gpu_memory_fraction: 0.85  # fraction VRAM à utiliser
+  allow_fallback: true
+  batch_size:
+    auto: true
+    cpu: 1
+    cuda: 4
+    mps: 2
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CACHE MODÈLES
+# ─────────────────────────────────────────────────────────────────────────────
+model_cache:
+  enabled: true
+  max_models_in_memory: 3
+  preload_on_startup:
+    - "piano_transcription"
+  lazy_load: true
+  cache_dir: "models/.cache"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PIPELINE ASYNCHRONE
+# ─────────────────────────────────────────────────────────────────────────────
+pipeline:
+  stages:
+    - name: "load_audio"
+      weight: 5
+      description: "Chargement audio"
+    - name: "demucs"
+      weight: 30
+      description: "Séparation Demucs"
+      optional: true
+    - name: "transcribe"
+      weight: 40
+      description: "Transcription IA"
+    - name: "quantize"
+      weight: 10
+      description: "Quantification"
+    - name: "split_hands"
+      weight: 5
+      description: "Séparation mains"
+    - name: "build_score"
+      weight: 5
+      description: "Construction partition"
+    - name: "export"
+      weight: 5
+      description: "Export fichiers"
+  progress_update_interval: 0.1  # secondes
+  timeout_per_stage: 300  # secondes
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXPORT
+# ─────────────────────────────────────────────────────────────────────────────
+export:
+  formats: ["pdf", "midi", "musicxml"]
+  pdf:
+    page_size: "A4"
+    margin_mm: 12
+    title: "AudioScore — Partition Piano"
+  midi:
+    ticks_per_beat: 480
+    include_pedal: true
+  musicxml:
+    use_music21: true
+    validate_xsd: true
+    version: "4.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SERVEUR
+# ─────────────────────────────────────────────────────────────────────────────
+server:
+  host: "127.0.0.1"
+  port: 5000
+  debug: false
+  max_content_length: 100 * 1024 * 1024  # 100 MB
+  cors_origins: ["http://localhost:3000", "http://127.0.0.1:5000"]
+  sse_heartbeat_interval: 15  # secondes
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND
+# ─────────────────────────────────────────────────────────────────────────────
+frontend:
+  default_language: "fr"
+  supported_languages: ["fr", "en", "es", "de", "ja", "zh"]
+  theme: "auto"  # light | dark | auto
+  practice_mode:
+    default_tempo_range: [50, 100]  # % de vitesse
+    metronome_volume: 0.3
+    loop_crossfade: 0.1  # secondes

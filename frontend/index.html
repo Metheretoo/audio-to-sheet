@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="AudioScore — Transcription audio MP3 en partition de piano. 100% local, open source." />
+  <title>🎹 AudioScore — Partition Piano</title>
+  <!--  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />-->
+  <link rel="stylesheet" href="/css/style.css?v=10" />
+</head>
+
+<body>
+
+  <!-- ══ EN-TÊTE ══════════════════════════════════════════════════════════════ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🎹</span>
+        <div>
+          <span class="logo-name">AudioScore</span>
+          <span class="logo-tagline">Transcription Audio → Partition Piano</span>
+        </div>
+      </div>
+      <div class="header-badges">
+        <span class="badge">100% Local</span>
+        <span class="badge">Open Source</span>
+        <span class="badge badge-device" id="device-badge" title="Carte graphique utilisée pour le traitement IA">
+          <span id="device-icon">⚙️</span>
+          <span id="device-label">Détection GPU…</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+
+    <!-- ══ SECTION UPLOAD ═══════════════════════════════════════════════════ -->
+    <section id="upload-section" class="section upload-section">
+
+      <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Zone de dépôt de fichier audio">
+        <div class="drop-inner">
+          <div class="drop-icon" aria-hidden="true">🎵</div>
+          <h1 class="drop-title">Glissez votre fichier audio ici</h1>
+          <p class="drop-sub">ou cliquez pour sélectionner</p>
+          <label for="file-input" class="btn btn-primary" id="file-label">
+            Choisir un fichier (MP3 / WAV / FLAC)
+          </label>
+          <input type="file" id="file-input"
+            accept=".mp3,.wav,.flac,audio/mpeg,audio/wav,audio/x-wav,audio/flac,audio/x-flac"
+            aria-label="Fichier audio MP3, WAV ou FLAC" />
+          <p class="drop-hint">Formats supportés : MP3, WAV, FLAC</p>
+          <p class="drop-hint" id="selected-filename">Aucun fichier sélectionné</p>
+        </div>
+      </div>
+
+      <button id="btn-transcribe" class="btn btn-accent btn-transcribe" disabled>
+        <span class="btn-icon">▶</span> Transcrire
+      </button>
+
+      <!-- Paramètres -->
+      <div class="settings-card">
+        <h2 class="settings-title">⚙️ Paramètres et Options de transcription</h2>
+
+        <!-- === Presets / Modes de qualité === -->
+        <div class="presets-container">
+          <span class="setting-label">Mode de qualité</span>
+          <div class="preset-buttons">
+            <button type="button" class="preset-btn" id="preset-rapide" data-preset="rapide" title="Mode Rapide :&#10;• Transcripteur : Basic Pitch&#10;• Isolation (Demucs) : Désactivée&#10;• Quantisation : Standard&#10;→ Idéal pour : Obtenir un aperçu immédiat sur un fichier contenant uniquement du piano (sans autres instruments).">Rapide</button>
+            <button type="button" class="preset-btn active" id="preset-equilibre"
+              data-preset="equilibre" title="Mode Équilibré (Recommandé) :&#10;• Transcripteur : Piano Transcription&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Standard (arrondi à la double-croche)&#10;→ Idéal pour : La grande majorité des morceaux (Pop, YouTube, etc.). Nettoie le bruit de fond et produit une partition lisible humainement.">Équilibré</button>
+            <button type="button" class="preset-btn" id="preset-classique" data-preset="classique" title="Mode Classique (Sensibilité max) :&#10;• Transcripteur : Piano Transcription&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Légère (arrondi à la triple-croche)&#10;• Seuil détection : 0.25 (très sensible)&#10;→ Idéal pour : Musique classique, passages pianissimo, notes très douces. Capte le maximum de notes au risque de quelques fausses détections.">Classique</button>
+            <button type="button" class="preset-btn" id="preset-studio" data-preset="studio" title="Mode Studio (Précision) :&#10;• Mode Haute Qualité Piano : Activé&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Légère (arrondi à la triple-croche)&#10;→ Idéal pour : Musique classique, jazz ou jeu expressif. Préserve les micro-rythmes (rubato, arpèges rapides) au prix d'une partition plus dense.">Studio</button>
+            <button type="button" class="preset-btn" id="preset-jazz" data-preset="jazz" title="Mode Jazz (Simplifié) :&#10;• Transcripteur : Piano Transcription&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Forte (arrondi à la croche)&#10;→ Idéal pour : Morceaux swing ou à rubato que l'on veut simplifier pour la lecture sans petites subdivisions inutiles.">Jazz</button>
+          </div>
+        </div>
+
+        <!-- Collapsible Advanced Settings -->
+        <details class="advanced-settings-details" open>
+          <summary class="advanced-settings-summary">🔧 Options de transcription avancées</summary>
+
+          <div class="advanced-settings-grid">
+
+            <!-- Moteur de transcription -->
+            <div class="setting-item">
+              <span class="setting-label">Transcripteur</span>
+              <div class="radio-group-premium">
+                <label class="radio-label-premium" title="Basic Pitch (Spotify) : Traitement léger, idéal pour des mélodies simples.">
+                  <input type="radio" name="transcriber" value="basic_pitch" />
+                  <span>Basic Pitch (rapide)</span>
+                </label>
+                <label class="radio-label-premium" title="Piano Transcription (ByteDance) : Entraîné spécifiquement sur le piano, très bon pour les accords et la séparation des mains.">
+                  <input type="radio" name="transcriber" value="piano_transcription" checked />
+                  <span>Piano Transcription (recommandé)</span>
+                </label>
+                <label class="radio-label-premium" title="Transkun : Modèle Transformer avec haute précision expressive pour capturer de fines nuances.">
+                  <input type="radio" name="transcriber" value="transkun" />
+                  <span>Transkun (expressivité maximale)</span>
+                </label>
+                <label class="radio-label-premium" title="Hierarchical Frequency-Time Transformer (Sony, 2023). L'état de l'art (SOTA) absolu pour la transcription de piano polyphonique complexe.">
+                  <input type="radio" name="transcriber" value="hft" />
+                  <span>hFT-Transformer (Sony - SOTA)</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Prétraitement Audio -->
+            <div class="setting-item" title="Sépare l'audio en pistes (Voix, Batterie, Basse, Autre) et ne garde que la piste piano.&#10;• Désactivez-le uniquement si votre fichier source est un enregistrement studio propre contenant EXCLUSIVEMENT du piano, pour gagner 50% de temps de calcul.">
+              <span class="setting-label">Prétraitement Audio</span>
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="use-demucs" checked />
+                <span>Isolation du piano (Demucs)</span>
+              </label>
+              <small class="setting-hint">Sépare les instruments et conserve principalement la piste piano.</small>
+            </div>
+
+            <!-- Nettoyage MIDI -->
+            <div class="setting-item col-span-2">
+              <span class="setting-label">Nettoyage MIDI</span>
+              <div class="sub-settings-flex">
+                <div class="sub-setting-item" title="Filtre les notes parasites ('ghost notes' ou artefacts de l'IA).&#10;• Augmentez (>80ms) si la partition a trop de 'déchets' très courts.&#10;• Diminuez (<30ms) si des trilles très rapides ou des glissandos disparaissent.">
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="remove-short-notes">
+                    <span>Supprimer les notes très courtes</span>
+                  </label>
+                  <div class="input-inline-container">
+                    <span class="input-inline-label">Durée minimale :</span>
+                    <input type="number" id="min-note-duration" class="input-field-sm" value="50" min="10" max="1000" />
+                    <span class="unit">ms</span>
+                  </div>
+                </div>
+                <div class="sub-setting-item" title="Lisse le rendu : si l'IA détecte une même note bégayante coupée en deux, cela la fusionne.&#10;• Utile pour éviter les cravates inutiles sur une note tenue.">
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="merge-near-notes">
+                    <span>Fusionner les notes répétées très proches</span>
+                  </label>
+                  <div class="input-inline-container">
+                    <span class="input-inline-label">Intervalle maximal :</span>
+                    <input type="number" id="merge-gap-ms" class="input-field-sm" value="30" min="5" max="500" />
+                    <span class="unit">ms</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+<!-- Quantification -->
+<div class="setting-item" title="Ajuste la rigidité de la grille rythmique (l'arrondi des notes) :&#10;• Aucune : Rythme brut (injouable, utile pour le debug)&#10;• Légère (1/32) : Garde le jeu 'humain', utile pour le classique ou le jazz très expressif.&#10;• Standard (1/16) : Le meilleur compromis de lisibilité (Pop/Variété).&#10;• Forte (1/8) : Simplifie le morceau au maximum, idéal pour les débutants (évite les syncopes complexes).">
+  <span class="setting-label">Quantification</span>
+  <div class="radio-group-premium inline-flex">
+    <label class="radio-label-premium" title="Rythme brut (injouable, utile pour le debug)">
+      <input type="radio" name="quantization" value="none" />
+      <span>Aucune</span>
+    </label>
+    <label class="radio-label-premium">
+      <input type="radio" name="quantization" value="light" />
+      <span>Légère</span>
+    </label>
+    <label class="radio-label-premium">
+      <input type="radio" name="quantization" value="standard" checked />
+      <span>Standard</span>
+    </label>
+    <label class="radio-label-premium">
+      <input type="radio" name="quantization" value="heavy" />
+      <span>Forte</span>
+    </label>
+  </div>
+</div>
+
+<!-- Options avancées -->
+<div class="setting-item">
+  <span class="setting-label">Options expressives</span>
+  <div class="checkbox-group">
+    <label class="checkbox-label-premium" title="Préserve l'expressivité (rubato, arpèges, notes inégales). Partition plus dense mais fidèle au jeu original.">
+      <input type="checkbox" id="enable-rubato" />
+      <span>Rubato</span>
+    </label>
+    <label class="checkbox-label-premium" title="Active la détection et l'écriture des triolets (3 notes dans le temps de 2).">
+      <input type="checkbox" id="enable-triplets" />
+      <span>Triolets</span>
+    </label>
+  </div>
+</div>
+
+<!-- Affichage de la partition (togglable sans re-transcrire) -->
+<div class="setting-item">
+  <span class="setting-label">Affichage de la partition</span>
+  <div class="checkbox-group">
+    <label class="checkbox-label-premium" title="Affiche/masque les annotations de pédale forte (Ped. / *) sans avoir besoin de relancer la transcription.">
+      <input type="checkbox" id="show-pedal" checked />
+      <span>Pédale</span>
+    </label>
+    <label class="checkbox-label-premium" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée, disponible pour tous les presets, pas seulement Jazz. Ne nécessite pas de relancer la transcription.">
+      <input type="checkbox" id="show-chords" checked />
+      <span>Noms d'accords</span>
+    </label>
+  </div>
+</div>
+
+            <!-- Piano Uniquement -->
+            <div class="setting-item">
+              <span class="setting-label">Séparation des mains</span>
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="split-hands" checked />
+                <span>Séparer automatiquement main gauche / main droite</span>
+              </label>
+            </div>
+
+            <!-- Analyse Musicale -->
+            <div class="setting-item">
+              <span class="setting-label">Analyse Musicale</span>
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="detect-tempo" checked />
+                <span>Détection automatique du tempo (BPM)</span>
+              </label>
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="detect-meter" checked />
+                <span>Détection automatique de la mesure (3/4, 4/4…)</span>
+              </label>
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="detect-key" checked />
+                <span>Détection automatique de la tonalité</span>
+              </label>
+            </div>
+
+            <!-- Paramètres Classiques (Tempo, Mesure, Tonalité, Sensibilité) -->
+            <div class="setting-item" id="tempo-override-item">
+              <label for="tempo-override" class="setting-label">Tempo (manuel)</label>
+              <div class="setting-control">
+                <input type="number" id="tempo-override" class="input-field" placeholder="Auto" min="40" max="300"
+                  step="1" aria-label="Tempo en BPM" />
+                <span class="unit">BPM</span>
+              </div>
+              <small class="setting-hint">Surcharger le tempo détecté</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="time-sig" class="setting-label">Mesure
+                <span id="meter-auto-badge" class="auto-detected-badge" style="display:none;">Auto-détecté ✓</span>
+              </label>
+              <select id="time-sig" class="input-field select-field" aria-label="Chiffrage de mesure">
+                <option value="4/4">4/4 — Quadruple</option>
+                <option value="3/4">3/4 — Triple</option>
+                <option value="2/4">2/4 — Binaire</option>
+                <option value="3/8">3/8 — Simple (croche)</option>
+                <option value="6/8">6/8 — Composé</option>
+                <option value="9/8">9/8 — Composé (triple)</option>
+                <option value="12/8">12/8 — Composé (quadruple)</option>
+              </select>
+            </div>
+
+            <div class="setting-item">
+              <label for="key-sig-upload" class="setting-label">🎼 Tonalité / Armure (manuelle)</label>
+              <select id="key-sig-upload" class="input-field select-field" aria-label="Armure (tonalité)">
+                <option value="C">Do Majeur / La mineur (C — aucun signe)</option>
+                <option value="G">Sol Majeur / Mi mineur (G — 1♯)</option>
+                <option value="D">Ré Majeur / Si mineur (D — 2♯)</option>
+                <option value="A">La Majeur / Fa♯ mineur (A — 3♯)</option>
+                <option value="E">Mi Majeur / Do♯ mineur (E — 4♯)</option>
+                <option value="B">Si Majeur / Sol♯ mineur (B — 5♯)</option>
+                <option value="F#">Fa♯ Majeur / Ré♯ mineur (F# — 6♯)</option>
+                <option value="F">Fa Majeur / Ré mineur (F — 1♭)</option>
+                <option value="Bb">Si♭ Majeur / Sol mineur (Bb — 2♭)</option>
+                <option value="Eb">Mi♭ Majeur / Do mineur (Eb — 3♭)</option>
+                <option value="Ab">La♭ Majeur / Fa mineur (Ab — 4♭)</option>
+                <option value="Db">Ré♭ Majeur / Si♭ mineur (Db — 5♭)</option>
+                <option value="Gb">Sol♭ Majeur / Mi♭ mineur (Gb — 6♭)</option>
+              </select>
+              <small class="setting-hint">Surcharger la tonalité détectée</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="onset-threshold" class="setting-label" title="Ajuste la sensibilité de l'IA aux attaques des notes.&#10;• Vers la gauche (< 0.50) : Capte les notes plus douces, mais risque de créer des fausses notes ou doublons.&#10;• Vers la droite (> 0.50) : Plus strict, ignore les bruits, mais risque de manquer les notes faibles.">
+                Sensibilité de détection
+                <span id="threshold-display" class="threshold-val">0.50</span>
+              </label>
+              <input type="range" id="onset-threshold" class="range-field" min="0.10" max="0.90" step="0.05"
+                value="0.50" aria-label="Seuil de détection des notes" />
+              <div class="range-labels">
+                <span>Moins de notes</span>
+                <span>Plus de notes</span>
+              </div>
+            </div>
+
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ══ CHARGEMENT ═══════════════════════════════════════════════════════ -->
+    <section id="loading-section" class="section loading-section hidden" aria-live="polite">
+      <div class="loading-card">
+        <div class="music-bouncer" aria-hidden="true">
+          <span>♩</span><span>♪</span><span>♫</span><span>♬</span><span>♩</span>
+        </div>
+        <h2 class="loading-title">Transcription en cours…</h2>
+        <p class="loading-sub">L'IA analyse l'audio localement.<br>
+          Cela peut prendre <strong>1 à 3 minutes</strong> selon la durée du morceau.</p>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <p class="loading-step" id="loading-step">Initialisation du modèle…</p>
+      </div>
+    </section>
+
+    <!-- ══ SECTION PARTITION ════════════════════════════════════════════════ -->
+    <section id="score-section" class="section score-section hidden">
+
+      <!-- Barre d'outils -->
+      <div class="toolbar" id="toolbar" role="toolbar" aria-label="Outils d'édition">
+
+        <div class="tool-group">
+          <span class="tool-group-label">Transposer</span>
+          <button id="btn-up" class="tool-btn" title="Monter d'un demi-ton  (↑)">↑ ♯</button>
+          <button id="btn-down" class="tool-btn" title="Descendre d'un demi-ton (↓)">↓ ♭</button>
+        </div>
+
+        <div class="tool-group">
+          <span class="tool-group-label">Durée</span>
+          <button class="tool-btn dur-btn" data-dur="w" title="Ronde  (W)">𝅝<br><small>Ronde</small></button>
+          <button class="tool-btn dur-btn" data-dur="h" title="Blanche (H)">𝅗<br><small>Blanche</small></button>
+          <button class="tool-btn dur-btn" data-dur="q" title="Noire  (Q)">♩<br><small>Noire</small></button>
+          <button class="tool-btn dur-btn" data-dur="8" title="Croche (8)">♪<br><small>Croche</small></button>
+          <button class="tool-btn dur-btn" data-dur="16" title="Double croche (6)">♬<br><small>D.croche</small></button>
+          <button id="btn-dot" class="tool-btn" title="Pointée (.)"
+            style="font-size: 16px; font-weight: bold; width: 42px; display: flex; align-items: center; justify-content: center;">.</button>
+        </div>
+
+        <div class="tool-group">
+          <span class="tool-group-label">Main</span>
+          <button id="btn-hand-r" class="tool-btn" title="Assigner main droite (clé de Sol)">
+            ✋ Droite
+          </button>
+          <button id="btn-hand-l" class="tool-btn" title="Assigner main gauche (clé de Fa)">
+            🤚 Gauche
+          </button>
+        </div>
+
+        <div class="tool-group">
+          <span class="tool-group-label">Déplacer</span>
+          <button id="btn-shift-left"  class="tool-btn" title="Décaler vers la gauche (Ctrl+←)">◀ Avant</button>
+          <button id="btn-shift-right" class="tool-btn" title="Décaler vers la droite (Ctrl+→)">Après ▶</button>
+        </div>
+
+        <div class="tool-group">
+          <span class="tool-group-label">🎼 Armure</span>
+          <select id="key-sig-toolbar" class="input-field select-field" title="Changer la tonalité de la partition"
+            style="font-size:11px;padding:4px 6px;min-width:90px;background:var(--surface);border:1px solid var(--panel-border);color:var(--text-1);border-radius:4px;">
+            <option value="C">Do Maj (C)</option>
+            <option value="G">Sol Maj (G)</option>
+            <option value="D">Ré Maj (D)</option>
+            <option value="A">La Maj (A)</option>
+            <option value="E">Mi Maj (E)</option>
+            <option value="B">Si Maj (B)</option>
+            <option value="F#">Fa♯ Maj (F#)</option>
+            <option value="F">Fa Maj (F)</option>
+            <option value="Bb">Si♭ Maj (Bb)</option>
+            <option value="Eb">Mi♭ Maj (Eb)</option>
+            <option value="Ab">La♭ Maj (Ab)</option>
+            <option value="Db">Ré♭ Maj (Db)</option>
+            <option value="Gb">Sol♭ Maj (Gb)</option>
+          </select>
+          <select id="sound-engine" class="input-field select-field" title="Choisir le moteur audio">
+            <option value="synth">Son MIDI</option>
+            <option value="soundfont" selected>Piano concert</option>
+          </select>
+        </div>
+
+        <div class="tool-group">
+          <span class="tool-group-label">Édition</span>
+          <button id="btn-add-note" class="tool-btn" title="Insérer une note (Noire)">➕ Note</button>
+          <button id="btn-add-rest" class="tool-btn" title="Insérer un silence (Noire)">➕ Silence</button>
+          <button id="btn-delete" class="tool-btn btn-danger" title="Supprimer la note (Suppr)">🗑</button>
+          <button id="btn-undo" class="tool-btn" title="Annuler (Ctrl+Z)" disabled>↩ Annuler</button>
+          <button id="btn-redo" class="tool-btn" title="Rétablir (Ctrl+Y)" disabled>↪ Rétablir</button>
+        </div>
+
+        <div class="tool-group tool-group-play">
+          <span class="tool-group-label">Lecture</span>
+          <button id="btn-play-pause" class="tool-btn" title="Lire / Pause (Espace)">▶ Lire</button>
+          <div class="playback-progress-container">
+            <div id="playback-timeline" class="playback-timeline">
+              <div id="playback-progress-bar" class="playback-progress-bar"></div>
+            </div>
+            <span id="playback-time-display" class="playback-time-display">0:00 / 0:00</span>
+          </div>
+        </div>
+
+        <div class="tool-group tool-group-export">
+          <span class="tool-group-label">Exporter</span>
+          <button id="btn-export-pdf" class="tool-btn btn-accent" title="Imprimer / Enregistrer en PDF">📄 PDF</button>
+          <button id="btn-export-midi" class="tool-btn btn-accent" title="Télécharger le fichier MIDI">🎵 MIDI</button>
+          <button id="btn-new-upload" class="tool-btn" title="Nouveau fichier">↩ Nouveau</button>
+        </div>
+      </div>
+
+      <!-- Corps -->
+      <div class="score-layout">
+
+        <!-- Panneau propriétés -->
+        <aside class="props-panel">
+          <h3 class="props-title">📌 Note sélectionnée</h3>
+          <div id="properties-panel" class="props-body">
+            <p class="no-selection">Cliquez sur une note<br>pour la modifier</p>
+          </div>
+
+          <div class="score-meta">
+            <h3 class="props-title">📊 Partition</h3>
+            <div id="score-meta-panel" class="props-body meta-body"></div>
+          </div>
+
+          <!-- Bloc V2 : Infos TempoMap -->
+          <div id="tempo-detected-info" class="v2-tempo-info" style="display:none;">
+            <h3 class="props-title">🎵 Analyse Tempo</h3>
+            <div class="v2-tempo-body">
+              <div class="v2-bpm-row">
+                <span id="tempo-detected-value" class="v2-bpm-value">-- BPM</span>
+                <span id="tempo-method-badge" class="v2-method-badge">--</span>
+              </div>
+              <div id="tempo-confidence-bar-wrap" class="v2-conf-wrap" title="Indice de confiance de la détection">
+                <div class="v2-conf-track">
+                  <div id="tempo-confidence-bar" class="v2-conf-fill" style="width:0%"></div>
+                </div>
+                <span id="tempo-confidence-label" class="v2-conf-label">-- %</span>
+              </div>
+              <p id="tempo-range-label" class="v2-range-label" style="display:none;"></p>
+            </div>
+          </div>
+
+          <!-- Bloc V2 : Slider tempo post-transcription -->
+          <div id="tempo-adjust-panel" class="v2-slider-panel" style="display:none;">
+            <h3 class="props-title">⏱ Ajuster le tempo</h3>
+            <div class="v2-slider-body">
+              <div class="v2-slider-row">
+                <input type="range" id="tempo-slider" min="40" max="240" step="1" value="120"
+                  aria-label="Ajustement du tempo" class="v2-tempo-slider" />
+                <output id="tempo-slider-output" class="v2-slider-output">120 BPM</output>
+              </div>
+              <button id="tempo-slider-reset" class="v2-reset-btn">↺ Réinitialiser</button>
+            </div>
+          </div>
+
+          <!-- Bloc V2 : Avertissements -->
+          <div id="transcription-warnings" class="v2-warnings-panel" style="display:none;">
+            <h3 class="props-title">&#9888; Avertissements</h3>
+            <ul id="warnings-list" class="v2-warnings-list"></ul>
+          </div>
+
+        </aside>
+
+        <!-- Zone partition -->
+        <div class="score-wrapper">
+          <div id="score-container" class="score-container"></div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ══ Toast notifications ═══════════════════════════════════════════════════ -->
+  <div id="toast-container" class="toast-container" aria-live="assertive"></div>
+
+  <!-- ══ Scripts ════════════════════════════════════════════════════════════════ -->
+  <script src="/js/lib/soundfont-player.min.js"></script>
+  <script src="/js/lib/vexflow.js"></script>
+  <script src="/js/renderer.js?v=14"></script>
+  <script src="/js/editor.js?v=14"></script>
+  <script src="/static/js/ScorePlayer.js?v=10"></script>
+  <script src="/static/js/app.js?v=14"></script>
+
+</body>
+
+</html>
