@@ -2,7 +2,7 @@ Emergent :
 2026-07-16 : sle..., s.lemesle@hotmail.com
 2026-07-17 : s.lemesle@hotmail.fr, ki-gestion@hotmail.com, kaodaninfo@gmail.com
 
-- défaut visuel, lors d'une transcription, affichage rest sur "Envoi du fichier", pas de barre de progression et pas d'i'os sur les étapes suivantes (moteur de transcription utilisé etc), juste "Réception du résultat" à la fin avec barre remplie
+- reprendre DIAGNOSTIC.md et faire le point de l'état actuel
 
 v5 :
 - Détection 3-4, 4-4 -> régression. Désormais la Mazurka est détectée en 6-8 et non en 3-4
