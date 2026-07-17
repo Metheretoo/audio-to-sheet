@@ -1,0 +1,4 @@
+Salut, j'ai un projet en cours sur lequel je stagne (https://github.com/Metheretoo/audio-to-sheet). J'ai l'impression que les étapes sont cassées, et qu'en backend les idées sont présentes mais écrasées à chaque étapes. Pourrais-tu m'aider en 1. Analysant ce qui est cassé 2. M'expliquer ce qui est cassé 3. Proposer des pistes d'amélioration non explorées. ----- Impératif : le projet doit rester 100% local et gratuit. On doit pouvoir l'utiliser sans internet.
+
+
+Ma priorité est la qualité de retranscription, pour limiter les ajustements manuels. Actuellement cette app fonctionne bien tant que ça reste des fichiers audios simples. Mais mon objectif est de transcrire du classique et là ça bloque (Ex : Mazurka in F Major, Op. 68, No. 3). Plein de notes inexistantes, la pédale est notée n'importe comment, les noms des accords (option plutôt jazz) ne s'affiche pas (blocage backend ?). Bref, je constate de gros soucis backend mais suis coincé

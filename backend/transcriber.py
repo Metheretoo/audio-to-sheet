@@ -74,12 +74,46 @@ _librosa.resample = _resample_compat
 # ENSEMBLE VOTING — Fusion multi-modèles (configurable via config.yaml)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _detect_available_ensemble_models() -> dict:
+    """Détecte à runtime quels modèles d'ensemble sont réellement utilisables."""
+    import importlib
+    import os
+    availability = {
+        'piano_transcription': False,
+        'basic_pitch': False,
+        'transkun': False,
+        'hft': False,
+        'mt3': False,
+    }
+    try:
+        importlib.import_module('piano_transcription_inference')
+        availability['piano_transcription'] = True
+    except ImportError:
+        pass
+    try:
+        importlib.import_module('basic_pitch.inference')
+        availability['basic_pitch'] = True
+    except ImportError:
+        pass
+    try:
+        importlib.import_module('transkun')
+        availability['transkun'] = True
+    except ImportError:
+        pass
+    try:
+        importlib.import_module('run_hft')
+        availability['hft'] = True
+    except (ImportError, ModuleNotFoundError):
+        pass
+    mt3_path = os.environ.get('MT3_PATH', '/mt3')
+    availability['mt3'] = os.path.isdir(mt3_path)
+    return availability
+
+
 def run_ensemble_transcription(audio_path, options):
     """
     Exécute la transcription en mode ensemble (vote multi-modèles).
-    
-    Charge la configuration d'ensemble depuis config.yaml et exécute
-    plusieurs modèles en parallèle, puis fusionne leurs résultats par vote pondéré.
+    Auto-détection des modèles disponibles + filtrage transparent.
     
     Args:
         audio_path: Chemin vers le fichier audio
@@ -96,17 +130,50 @@ def run_ensemble_transcription(audio_path, options):
     print("[Ensemble] Démarrage de la transcription en mode ensemble...")
     t0 = time.perf_counter()
     
-    # Charger la config d'ensemble (depuis config.yaml via options ou défauts)
     ensemble_config = options.get('ensemble', {})
     
-    # Modèles à exécuter avec leurs poids
-    models_config = ensemble_config.get('models', [
+    # Configuration par défaut des modèles (poids)
+    # NOTE : basic_pitch retiré du défaut (qualité inférieure sur classique)
+    # Pour l'activer, l'ajouter manuellement dans config.yaml ou options['ensemble']['models']
+    default_models = [
         {'name': 'piano_transcription', 'weight': 1.5, 'onset_weight': 1.2, 'pitch_weight': 1.0, 'duration_weight': 1.0},
-        {'name': 'basic_pitch', 'weight': 1.0, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 0.8},
-        {'name': 'transkun', 'weight': 1.3, 'onset_weight': 1.1, 'pitch_weight': 1.1, 'duration_weight': 1.1},
-        {'name': 'hft', 'weight': 1.2, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 1.0},
-    ])
-    
+        {'name': 'transkun',           'weight': 1.3, 'onset_weight': 1.1, 'pitch_weight': 1.1, 'duration_weight': 1.1},
+        # {'name': 'basic_pitch',      'weight': 1.0, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 0.8},
+        # {'name': 'hft',              'weight': 1.2, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 1.0},
+    ]
+    models_config = ensemble_config.get('models', default_models)
+
+    # PHASE 3 : filtrer selon la dispo réelle des modèles
+    availability = _detect_available_ensemble_models()
+    print(f"[Ensemble] Modèles disponibles : "
+          f"{[k for k, v in availability.items() if v]}")
+
+    filtered_models = [m for m in models_config if availability.get(m['name'], False)]
+    if len(filtered_models) < len(models_config):
+        skipped = [m['name'] for m in models_config if not availability.get(m['name'], False)]
+        print(f"[Ensemble] ⚠ Modèles indisponibles, ignorés : {skipped}")
+
+    if not filtered_models:
+        raise RuntimeError(
+            "Ensemble impossible : aucun modèle installé. "
+            "Vérifie : pip install piano_transcription_inference basic_pitch transkun"
+        )
+
+    if len(filtered_models) < 2:
+        print(f"[Ensemble] Un seul modèle dispo ({filtered_models[0]['name']}), "
+              f"bascule sur mode single-model.")
+        # Fallback direct au modèle disponible
+        model_fn = {
+            'piano_transcription': run_piano_transcription,
+            'basic_pitch': run_basic_pitch,
+            'transkun': run_transkun,
+        }.get(filtered_models[0]['name'])
+        if model_fn:
+            return model_fn(audio_path, options)
+        raise RuntimeError(f"Modèle {filtered_models[0]['name']} non implémenté pour fallback")
+
+    models_config = filtered_models
+
     onset_tolerance = ensemble_config.get('onset_tolerance', 0.05)  # secondes
     pitch_tolerance = ensemble_config.get('pitch_tolerance', 1)      # demi-tons
     min_votes = ensemble_config.get('min_votes', 2)
@@ -921,178 +988,195 @@ class TranscriptionPipeline:
                 - time_signature: Mesure détectée
                 - warnings: Liste d'avertissements
         """
+        import os
         import midi_parser
         from tempo_map import build_tempo_map
-        from tonality_detector import detect_tonality
         from quantizer import quantize_notes
         from voice_engine import split_voices
         from score_builder import build_score
-        
+
         print(f"[Pipeline] Début de la transcription: {input_path}")
-        
-        # Étape 1: Transcription audio → notes MIDI (via piano_transcription_inference / basic_pitch)
+
         options = options or {
             'transcriber': 'piano_transcription',
             'use_demucs': False,
             'detect_tempo': True,
             'onset_threshold': 0.5,
-            'frame_threshold': 0.25
+            'frame_threshold': 0.25,
         }
-        
-        note_events, midi_data, pedal_intervals, raw_tempo, warning_msgs = transcribe_audio(input_path, options)
-        
-        if note_events is None or len(note_events) == 0:
-            raise ValueError("Aucune note détectée dans l'audio")
-        
-        print(f"[Pipeline] {len(note_events)} notes détectées (brut)")
 
-        # Étape 1.5 : Filtrage (suppression des notes courtes et fusion des notes proches)
-        filtered_events = []
+        # ── 1. Transcription brute (audio → note_events) ─────────────────────
+        note_events, midi_data, pedal_intervals, raw_tempo, warning_msgs = transcribe_audio(
+            input_path, options
+        )
+        if not note_events:
+            raise ValueError("Aucune note détectée dans l'audio")
+        print(f"[Pipeline] {len(note_events)} notes brutes")
+
+        # ── 1.5 Filtrage note_filter (FIX #2) ─────────────────────────────────
+        notes_dict = [
+            {'onset': n[0], 'pitch': n[1], 'duration': n[2],
+             'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])}
+            for n in note_events
+        ]
+        try:
+            from note_filter import filter_ghost_notes, apply_pedal_aware_shortening
+            notes_dict = filter_ghost_notes(notes_dict, options)
+            notes_dict = apply_pedal_aware_shortening(notes_dict, pedal_intervals or [], options)
+            print(f"[Pipeline] {len(notes_dict)} notes après note_filter (ghost + pedal-aware)")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ note_filter indisponible ({e}), fallback filtrage naïf")
+
         remove_short = options.get('remove_short_notes', False)
         min_dur_s = options.get('minimum_note_duration', 50) / 1000.0
-        
-        for ev in note_events:
-            # ev = (onset, pitch, duration, velocity)
-            if remove_short and ev[2] < min_dur_s:
-                continue
-            filtered_events.append(ev)
-            
+        if remove_short:
+            notes_dict = [n for n in notes_dict if n['duration'] >= min_dur_s]
+
         if options.get('merge_near_notes', False):
-            merged_events = []
             merge_gap_s = options.get('merge_gap_ms', 30) / 1000.0
-            # Trier par pitch puis par onset
-            filtered_events.sort(key=lambda x: (x[1], x[0]))
-            
-            for ev in filtered_events:
-                if not merged_events:
-                    merged_events.append(ev)
-                    continue
-                last_ev = merged_events[-1]
-                # Si même pitch et l'écart entre la fin de la précédente et le début de l'actuelle est < gap
-                if ev[1] == last_ev[1] and (ev[0] - (last_ev[0] + last_ev[2])) < merge_gap_s:
-                    # Fusionner : étendre la durée de la note précédente
-                    new_duration = (ev[0] + ev[2]) - last_ev[0]
-                    # Conserver la vélocité maximale
-                    new_vel = max(last_ev[3], ev[3]) if len(ev) > 3 else 80
-                    merged_events[-1] = (last_ev[0], last_ev[1], new_duration, new_vel)
+            notes_dict.sort(key=lambda n: (n['pitch'], n['onset']))
+            merged = []
+            for n in notes_dict:
+                if merged and merged[-1]['pitch'] == n['pitch'] and \
+                   (n['onset'] - (merged[-1]['onset'] + merged[-1]['duration'])) < merge_gap_s:
+                    prev = merged[-1]
+                    prev['duration'] = (n['onset'] + n['duration']) - prev['onset']
+                    prev['velocity'] = max(prev['velocity'], n['velocity'])
                 else:
-                    merged_events.append(ev)
-            # Retrier par temps d'apparition
-            merged_events.sort(key=lambda x: x[0])
-            filtered_events = merged_events
-            
-        note_events = filtered_events
-        print(f"[Pipeline] {len(note_events)} notes après filtrage, estimation tempo base: {raw_tempo} BPM")
-        
-        # Étape 2: Construction de la TempoMap
+                    merged.append(dict(n))
+            notes_dict = merged
+            notes_dict.sort(key=lambda n: n['onset'])
+
+        note_events = [
+            (n['onset'], n['pitch'], n['duration'],
+             int(round(n['velocity'] * 127)) if n['velocity'] <= 1 else int(n['velocity']))
+            for n in notes_dict
+        ]
+        print(f"[Pipeline] {len(note_events)} notes après filtrage complet")
+
+        # ── 2. Tempo Map ─────────────────────────────────────────────────────
         user_tempo = options.get('tempo')
         start_bpm = float(user_tempo) if user_tempo else None
-
-        tm = build_tempo_map(
-            input_path, 
-            note_events, 
-            start_bpm=start_bpm
-        )
-        
-        # Si l'utilisateur a forcé un tempo (sans détection auto), on peut vouloir forcer
-        # le BPM affiché, mais on conserve la grille dynamique élastique pour éviter les silences parasites.
+        tm = build_tempo_map(input_path, note_events, start_bpm=start_bpm)
         display_bpm = tm.global_bpm
         if start_bpm and not options.get('detect_tempo', True):
-            print(f"[Pipeline] Tempo manuel appliqué à l'affichage : {start_bpm} BPM (détecté dynamiquement: {tm.global_bpm:.1f} BPM)")
             display_bpm = start_bpm
-        
-        # Étape 3 : Quantisation des notes avec le BPM de la TempoMap
+
+        # ── 3. Quantification ────────────────────────────────────────────────
         quantization_level = options.get('quantization_level', 'standard')
-        # Passer les options rubato et triolets au quantizer
         quantized_notes = quantize_notes(
             note_events,
             bpm=tm.global_bpm,
             quantization_level=quantization_level,
             enable_rubato=options.get('enable_rubato', False),
             enable_triplets=options.get('enable_triplets', False),
-            tempo_map=tm
+            tempo_map=tm,
         )
-        print(f"[Pipeline] {len(quantized_notes)} notes quantisées (niveau: {quantization_level}, BPM effectif: {tm.global_bpm:.1f})")
+        print(f"[Pipeline] {len(quantized_notes)} notes quantisées ({quantization_level})")
 
-        
-        # V4: Analyse Harmonique & Séparation des voix
+        # ── 4. Analyse harmonique (TOUJOURS, pas seulement en preset jazz) ──
         preset = options.get('preset', 'standard')
         harmonic_ctx = None
         key_name = options.get('key_sig', 'C')
-        
-        if options.get('detect_key', True) or preset == 'jazz':
-            try:
-                from harmonic_analyzer import build_harmonic_context
-                from piano_roll import group_into_slices, fuse_arpeggios
-                
-                # Convertir les pédales secondes → beats pour l'analyse
-                pedal_beats = []
-                if pedal_intervals:
-                    for p_start, p_end in pedal_intervals:
-                        pedal_beats.append((tm.seconds_to_beat(p_start), tm.seconds_to_beat(p_end)))
-                        
-                slices = group_into_slices(quantized_notes, pedal_events=pedal_beats or None)
-                slices = fuse_arpeggios(slices)
-                harmonic_ctx = build_harmonic_context(slices)
-                
-                if options.get('detect_key', True):
-                    key_name = harmonic_ctx.global_key
-                    print(f"[Pipeline V4] Tonalité détectée: {key_name}")
-            except Exception as e:
-                print(f"[Pipeline V4] Erreur analyse harmonique: {e}")
-                
-        # Étape 4: Séparation des mains (Treble / Bass) avec contexte harmonique
-        voices = split_voices(quantized_notes, options=options)
-            
-        # Étape 6: Construction de la partition VexFlow (ScoreData)
+        try:
+            from harmonic_analyzer import build_harmonic_context
+            from piano_roll import group_into_slices, fuse_arpeggios
+
+            pedal_beats = []
+            if pedal_intervals:
+                for p_start, p_end in pedal_intervals:
+                    pedal_beats.append(
+                        (tm.seconds_to_beat(p_start), tm.seconds_to_beat(p_end))
+                    )
+
+            slices = group_into_slices(quantized_notes, pedal_events=pedal_beats or None)
+            slices = fuse_arpeggios(slices)
+            harmonic_ctx = build_harmonic_context(slices)
+
+            if options.get('detect_key', True):
+                key_name = harmonic_ctx.global_key
+                print(f"[Pipeline] Tonalité détectée: {key_name}")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ Analyse harmonique en échec ({e})")
+
+        # ── 5. Séparation LH/RH guidée par harmonie (FIX #3) ─────────────────
+        try:
+            if harmonic_ctx is not None:
+                from voice_engine import split_with_harmony
+                voices = split_with_harmony(quantized_notes, harmonic_ctx, options)
+                print("[Pipeline] Split LH/RH : split_with_harmony (guidé)")
+            else:
+                voices = split_voices(quantized_notes, options=options)
+                print("[Pipeline] Split LH/RH : split_voices (fallback)")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ split_with_harmony échoué ({e}), fallback split_voices")
+            voices = split_voices(quantized_notes, options=options)
+
+        # ── 6. Construction du score ─────────────────────────────────────────
         time_sig_str = options.get('time_sig', '4/4')
         try:
             ts_parts = time_sig_str.split('/')
-            time_signature = (int(ts_parts[0]), int(ts_parts[1]))
-        except:
-            time_signature = tm.estimated_meter
-            
+            time_signature = [int(ts_parts[0]), int(ts_parts[1])]
+        except Exception:
+            time_signature = list(tm.estimated_meter)
+
+        show_chords = options.get('chord_symbols', True) or (preset == 'jazz')
+
         score_options = {
-            'detect_key': False, # Déjà détecté ci-dessus
+            'detect_key': False,
             'time_sig': time_signature,
             'display_bpm': display_bpm,
-            'write_chord_symbols': (preset == 'jazz'),
-            'detect_dynamics': True
+            'write_chord_symbols': show_chords,
+            'detect_dynamics': True,
         }
+
+        pedal_beats_list = []
+        if pedal_intervals:
+            for p_start, p_end in pedal_intervals:
+                pedal_beats_list.append(
+                    (tm.seconds_to_beat(p_start), tm.seconds_to_beat(p_end))
+                )
+
         score_data = build_score(
-            voices, tm, key_sig=key_name, options=score_options, 
-            harmonic_ctx=harmonic_ctx, pedals=pedal_intervals
+            voices, tm,
+            key_sig=key_name,
+            options=score_options,
+            harmonic_ctx=harmonic_ctx,
+            pedals=pedal_beats_list,
         )
-        
-        # Attacher les avertissements au score_data
-        if 'metadata' not in score_data:
-            score_data['metadata'] = {}
-        score_data['metadata']['warnings'] = warning_msgs
-        
-        # Étape 7: Export fichiers MIDI et XML (stub pour ne pas casser le front-end)
+
+        score_data.setdefault('metadata', {})['warnings'] = warning_msgs
+
+        # ── 7. Export MIDI + MusicXML réel (FIX #5) ──────────────────────────
         os.makedirs(output_dir, exist_ok=True)
         midi_path = os.path.join(output_dir, 'output.mid')
-        xml_path = os.path.join(output_dir, 'score.xml')
-        
+        xml_path = os.path.join(output_dir, 'score.musicxml')
+
         midi_parser.score_to_midi(score_data, midi_path)
-        
-        with open(xml_path, 'w') as f:
-            f.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?><score-partwise></score-partwise>")
-            
-        print(f"[Pipeline] Fichiers générés:")
-        print(f"  - MIDI: {midi_path}")
-        print(f"  - MusicXML (stub): {xml_path}")
-        
-        # Enrichissement pour le frontend
+
+        try:
+            from musicxml_exporter import export_musicxml
+            export_musicxml(score_data, xml_path)
+            print(f"[Pipeline] MusicXML généré : {xml_path}")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ Export MusicXML en échec ({e}), stub écrit")
+            with open(xml_path, 'w', encoding='utf-8') as f:
+                f.write('<?xml version="1.0" encoding="UTF-8"?><score-partwise></score-partwise>')
+
+        # ── 8. Métadonnées pour le frontend ──────────────────────────────────
         score_data['midi_path'] = midi_path
         score_data['xml_path'] = xml_path
         score_data['note_count'] = len(quantized_notes)
         score_data['warnings'] = warning_msgs
         score_data['tempoMapMethod'] = tm.method
-        score_data['tempoConfidence'] = 0.85 if tm.method == 'madmom' else (0.6 if tm.method == 'librosa_advanced' else 0.3)
+        score_data['tempoConfidence'] = (
+            0.85 if tm.method == 'madmom'
+            else (0.6 if tm.method == 'librosa_advanced' else 0.3)
+        )
         score_data['tempoRange'] = tm.tempo_range()
         score_data['detectedMeter'] = tm.estimated_meter
-        
+
+        print(f"[Pipeline] Terminé — MIDI: {midi_path} | XML: {xml_path}")
         return score_data
     
     def _detect_time_signature(self, note_events, tempo):

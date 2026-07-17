@@ -7,7 +7,8 @@ waitress>=3.0
 requests>=2.31
 
 # ── Audio / ML core ───────────────────────────────────────────────────────────
-numpy>=1.24
+# NOTE : numpy < 1.27 requis pour madmom 0.16 (np.float/np.int supprimés en 1.24+)
+numpy>=1.23,<1.27
 scipy>=1.10
 librosa>=0.10
 soundfile>=0.12
@@ -15,7 +16,8 @@ mido>=1.3
 pretty_midi>=0.2.10
 
 # ── Beat tracking avancé (Phase 1 V2) ─────────────────────────────────────────
-# Prérequis : pip install cython d'abord si madmom ne s'installe pas
+# Prérequis : pip install cython==0.29.36 d'abord si madmom ne s'installe pas
+# NOTE : numpy < 1.27 obligatoire pour madmom 0.16
 madmom>=0.16
 
 # ── Deep learning / PyTorch stack ───────────────────────────────────────────
@@ -30,9 +32,15 @@ mir_eval>=0.7
 # ── Audio separation (si activé dans options) ────────────────────────────────
 demucs>=4.0
 
-# ── Optional ONNX/OpenVINO (basic-pitch ou fallback) ─────────────────────────
-onnxruntime-openvino>=1.17
+# ── Optional ONNX/OpenVINO (pour basic-pitch si réactivé) ────────────────────
+# onnxruntime-openvino>=1.17  # retiré: dépendait de basic-pitch
 
 # ── Intel GPU support (ARC A770 et plus) ─────────────────────────────────────
 # Installation : pip install torch --index-url https://download.pytorch.org/whl/xpu
 # Note: IPEX est Linux-only. PyTorch XPU inclut les optimisations pour Windows.
+
+# ── Installation de madmom sur Windows (si erreurs) ──────────────────────────
+# 1. pip install cython==0.29.36
+# 2. pip install "numpy>=1.23,<1.27"
+# 3. pip install madmom
+# 4. ffmpeg requis pour lecture MP3 (conda install -c conda-forge ffmpeg)
