@@ -1,0 +1,74 @@
+Refonte Backend AudioScore — Pipeline de transcription fiable pour le classique
+
+Refactoring du backend de transcription audio → partition piano, avec la Mazurka Op. 68 No. 3 de Chopin comme cas de référence.
+
+Type d'application
+
+Web App locale (existante) — frontend web + backend Python. Le travail porte à ~90% sur le backend.
+
+Pourquoi vos réglages actuels "marchent mieux" (et confirment le diagnostic)
+
+Sensibilité 0.85 + quantification forte donnent un meilleur rendu car :
+- La quantification forte (grille grossière) masque les erreurs de la tempo map fixe — elle écrase le bruit temporel au lieu de le corriger
+- Le préréglage "classique" actuel (grille 1/32) fait l'inverse : il transcrit fidèlement le décalage entre l'audio rubato et la grille rigide → notation absurde en triples/quadruples croches
+- Ce n'est pas la sensibilité du modèle le problème, c'est la conversion temps réel → temps musical
+
+La Mazurka est le pire cas possible pour le pipeline actuel : 3/4 avec accents déplacés (2e/3e temps typique mazurka, qui trompe les beat trackers), rubato permanent, appoggiatures et notes pointées.
+
+Phases d'implémentation
+
+Phase 1 — Fondation tempo : source unique de vérité
+
+- Supprimer la double détection : build_tempo_map devient l'unique mécanisme, detect_tempo_librosa retiré de transcribe_audio
+- Beat tracking dynamique (beats + downbeats) au lieu d'un BPM global — la tempo map suit le rubato mesure par mesure
+- Détection de la signature rythmique (3/4 vs 4/4) — critique pour la Mazurka
+- Implémenter réellement downbeat_times dans le quantizer (actuellement code mort)
+
+Phase 2 — Quantizer non-destructif et tempo-map-aware
+
+- Unifier les deux chemins concurrents (NoteQuantizer vs quantize_notes) en un seul module
+- Conversion secondes → beats via la tempo map (interpolation), plus jamais via 60/bpm fixe
+- Ne jamais écraser les timings originaux : chaque note garde onset_raw/onset_quantized — permet de re-quantifier sans re-transcrire, et alimente l'éditeur frontend
+- Tous les seuils configurables (fin des valeurs codées en dur)
+
+Phase 3 — Préservation des ornements et notes courtes
+
+- Préréglage "classique" refondu : min_note_duration abaissé (triple-croche), merge_threshold désactivé ou quasi-nul, snap_threshold_ratio réduit
+- Détection de motifs : appoggiatures (note très courte juste avant un temps → grace note en MusicXML), trilles (alternance rapide de 2 hauteurs → symbole tr au lieu de 12 notes illisibles)
+- Support des rythmes pointés dans les durées canoniques
+
+Phase 4 — Pédale et dynamiques
+
+- Inverser l'ordre : quantification d'abord, apply_pedal_aware_shortening ensuite (son travail n'est plus écrasé)
+- Agrégation multi-modèles de la pédale en mode ensemble (vote par recouvrement d'intervalles) au lieu de garder seulement le modèle primaire
+- Standardiser la vélocité : représentation interne unique 0-127 dès la sortie de chaque modèle, suppression de l'heuristique if velocity > 1
+- Remplacer weighted_mean par max ou médiane pondérée pour préserver la dynamique
+
+Phase 5 — Ensemble tolérant au rubato
+
+- onset_tolerance adaptatif : 50ms → tolérance proportionnelle au tempo local (via la tempo map)
+- Fallback intelligent : une note rejetée par min_votes=2 mais avec forte confiance du modèle primaire est conservée avec un flag "incertain" (exploitable dans l'éditeur)
+
+Phase 6 — Harnais de validation régression
+
+- La Mazurka Op. 68 No. 3 comme cas de test permanent : transcription de référence (MusicXML de la vraie partition) vs sortie du pipeline
+- Métriques automatiques : F1 notes (onset/pitch), précision rythmique, taux d'ornements préservés
+- Test à chaque modification → fini les régressions silencieuses entre phases
+
+Stack technique
+
+- Backend : migration Flask → FastAPI (recommandé en Phase 1 — async natif pour les longues transcriptions, endpoints de progression SSE, validation Pydantic des options du pipeline)
+- Frontend : conservé (VexFlow + Web Audio API), enrichi pour afficher les notes "incertaines"
+- Base : MongoDB (optionnel) pour historiser les jobs de transcription et les métriques de régression
+- Modèles IA : inchangés (Piano Transcription / Transkun en ensemble pour le classique)
+
+Hypothèses
+
+- Piano seul, audio haute qualité (votre cas) → Demucs reste optionnel
+- L'éditeur frontend existant est conservé tel quel dans un premier temps
+- Vos fichiers de référence (FLAC + photo de la partition réelle) serviront de ground truth pour la Phase 6 — la partition sera saisie en MusicXML (quelques mesures suffisent)
+
+Questions ouvertes
+
+- Migration FastAPI : dès la Phase 1 ou après stabilisation du pipeline musical ? (Le refactoring musical est indépendant du framework web)
+- Pour la Phase 6, avez-vous accès au MusicXML officiel de la Mazurka (IMSLP/MuseScore) ou faut-il le ressaisir depuis votre image ?

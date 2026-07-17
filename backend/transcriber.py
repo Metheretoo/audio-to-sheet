@@ -1014,9 +1014,14 @@ class TranscriptionPipeline:
         print(f"[Pipeline] {len(note_events)} notes brutes")
 
         # ── 1.5 Filtrage note_filter (FIX #2) ─────────────────────────────────
+        
         notes_dict = [
-            {'onset': n[0], 'pitch': n[1], 'duration': n[2],
-             'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])}
+            {
+                'onset': n[0],
+                'pitch': n[1],
+                'duration': n[2],
+                'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])
+            }
             for n in note_events
         ]
         try:
@@ -1037,11 +1042,16 @@ class TranscriptionPipeline:
             notes_dict.sort(key=lambda n: (n['pitch'], n['onset']))
             merged = []
             for n in notes_dict:
-                if merged and merged[-1]['pitch'] == n['pitch'] and \
-                   (n['onset'] - (merged[-1]['onset'] + merged[-1]['duration'])) < merge_gap_s:
-                    prev = merged[-1]
-                    prev['duration'] = (n['onset'] + n['duration']) - prev['onset']
-                    prev['velocity'] = max(prev['velocity'], n['velocity'])
+                if merged and merged[-1]['pitch'] == n['pitch']:
+                    gap = n['onset'] - (merged[-1]['onset'] + merged[-1]['duration'])
+
+                    # Fusion uniquement si le silence est très court
+                    if 0 <= gap <= merge_gap_s:
+                        prev = merged[-1]
+                        prev['duration'] = (n['onset'] + n['duration']) - prev['onset']
+                        prev['velocity'] = max(prev['velocity'], n['velocity'])
+                    else:
+                        merged.append(dict(n))
                 else:
                     merged.append(dict(n))
             notes_dict = merged
@@ -1062,17 +1072,30 @@ class TranscriptionPipeline:
         if start_bpm and not options.get('detect_tempo', True):
             display_bpm = start_bpm
 
-        # ── 3. Quantification ────────────────────────────────────────────────
+        # ── 3. Quantification (V4 tempo-map-aware, fallback V3) ──────────────
         quantization_level = options.get('quantization_level', 'standard')
-        quantized_notes = quantize_notes(
-            note_events,
-            bpm=tm.global_bpm,
-            quantization_level=quantization_level,
-            enable_rubato=options.get('enable_rubato', False),
-            enable_triplets=options.get('enable_triplets', False),
-            tempo_map=tm,
-        )
-        print(f"[Pipeline] {len(quantized_notes)} notes quantisées ({quantization_level})")
+        try:
+            from tempo_quantizer import quantize_notes as quantize_notes_v4
+            quantized_notes = quantize_notes_v4(
+                note_events,
+                bpm=tm.global_bpm,
+                quantization_level=quantization_level,
+                enable_rubato=options.get('enable_rubato', False),
+                enable_triplets=options.get('enable_triplets', False),
+                tempo_map=tm,
+            )
+            print(f"[Pipeline] Quantizer V4 tempo-map-aware ({quantization_level})")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ Quantizer V4 indisponible ({e}), fallback V3")
+            quantized_notes = quantize_notes(
+                note_events,
+                bpm=tm.global_bpm,
+                quantization_level=quantization_level,
+                enable_rubato=options.get('enable_rubato', False),
+                enable_triplets=options.get('enable_triplets', False),
+                tempo_map=tm,
+            )
+        print(f"[Pipeline] {len(quantized_notes)} notes quantisées")
 
         # ── 4. Analyse harmonique (TOUJOURS, pas seulement en preset jazz) ──
         preset = options.get('preset', 'standard')
