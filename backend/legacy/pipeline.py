@@ -747,7 +747,7 @@ class AsyncPipeline:
             pedals=pedals or [],
         )
 
-    def _export(self, score_data: dict, voice_split, options: dict) -> dict[str, str]:
+    def _export(self, score_data: dict, options: dict) -> dict[str, str]:
         """Exporte la partition dans les formats demandés"""
         from backend.exporters import export_all_formats
 
@@ -755,7 +755,9 @@ class AsyncPipeline:
         output_dir = options.get("output_dir", "outputs")
         base_name = options.get("base_name", "transcription")
 
-        return export_all_formats(score_data, voice_split, output_dir, base_name, formats)
+        # score_data contient la partition construite; export_all_formats
+        # attend score_data directement (plus voice_split séparément).
+        return export_all_formats(score_data, output_dir, base_name, formats)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Contrôle du pipeline

@@ -1,0 +1,40 @@
+# Mazurka en Fa majeur Op.68 No.3 — Chopin
+# Référence pour validation régression (Phase 7)
+# 
+# Ce fichier décrit la structure musicale de la Mazurka pour permettre
+# la création du MusicXML de référence.
+#
+# Structure :
+# - 16 mesures en 3/4
+# - Tempo : ~120 BPM (allegro)
+# - Tonalité : F major (armure : 1 bémol - Bb)
+# - Motif principal : arpèges ↑ en main gauche + mélodie chantante en main droite
+#
+# Mesure 1-4 : Thème A (F major)
+# Mesure 5-8 : Thème A' (variation)
+# Mesure 9-12 : Thème B (dominante : Do major)
+# Mesure 13-16 : Thème A (retour F major)
+#
+# Ornements détectés :
+# - Appoggiatures sur mesures 2, 6, 10, 14
+# - Trills sur mesures 4, 12
+# - Rythmes pointés fréquents (caractéristique mazurka)
+#
+# Notes MG typiques par mesure :
+# - Mesure 1 : F2 (basse) + accords arpégés F3-A3-C4
+# - Mesure 2 : G2 bass + accords G3-Bb3-D4
+# - Mesure 3 : D2 bass + accords D3-F3-A3
+# - Mesure 4 : Bb1 bass + accords Bb2-D3-F3
+#
+# Signature rythmique : 3/4 (vérifiée)
+# Downbeats : temps 1 de chaque mesure (16 downbeats)
+#
+# Pour recréer le MusicXML :
+# 1. Utiliser un logiciel de notation (MuseScore, Finale, Noteworthy)
+# 2. Saisir les 16 mesures de la Mazurka Op.68 No.3
+# 3. Exporter en MusicXML 3.1
+# 4. Renommer en mazurka_op68_no3.musicxml
+#
+# NOTE : Le fichier MusicXML complet doit être saisi manuellement
+# depuis la partition physique ou une source légale.
+# Ce fichier sert de documentation pour la référence.

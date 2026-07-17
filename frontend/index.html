@@ -88,21 +88,13 @@
             <div class="setting-item">
               <span class="setting-label">Transcripteur</span>
               <div class="radio-group-premium">
-                <label class="radio-label-premium" title="Basic Pitch (Spotify) : Traitement léger, idéal pour des mélodies simples.">
-                  <input type="radio" name="transcriber" value="basic_pitch" />
-                  <span>Basic Pitch (rapide)</span>
-                </label>
                 <label class="radio-label-premium" title="Piano Transcription (ByteDance) : Entraîné spécifiquement sur le piano, très bon pour les accords et la séparation des mains.">
                   <input type="radio" name="transcriber" value="piano_transcription" checked />
                   <span>Piano Transcription (recommandé)</span>
                 </label>
-                <label class="radio-label-premium" title="Transkun : Modèle Transformer avec haute précision expressive pour capturer de fines nuances.">
+                <label class="radio-label-premium" title="Transkun : Modèle Transformer SOTA avec haute précision expressive pour capturer de fines nuances.">
                   <input type="radio" name="transcriber" value="transkun" />
                   <span>Transkun (expressivité maximale)</span>
-                </label>
-                <label class="radio-label-premium" title="Hierarchical Frequency-Time Transformer (Sony, 2023). L'état de l'art (SOTA) absolu pour la transcription de piano polyphonique complexe.">
-                  <input type="radio" name="transcriber" value="hft" />
-                  <span>hFT-Transformer (Sony - SOTA)</span>
                 </label>
               </div>
             </div>
@@ -272,15 +264,15 @@
             </div>
 
             <div class="setting-item">
-              <label for="onset-threshold" class="setting-label" title="Ajuste la sensibilité de l'IA aux attaques des notes.&#10;• Vers la gauche (< 0.50) : Capte les notes plus douces, mais risque de créer des fausses notes ou doublons.&#10;• Vers la droite (> 0.50) : Plus strict, ignore les bruits, mais risque de manquer les notes faibles.">
+              <label for="onset-threshold" class="setting-label" title="Ajuste la sensibilité de l'IA aux attaques des notes.&#10;• Vers la gauche (0 = haute sensibilité) : Seuil bas (0.05) → capte les notes plus douces, mais risque de fausses notes.&#10;• Vers la droite (1 = basse sensibilité) : Seuil haut (0.50) → plus strict, ignore le bruit, mais risque de manquer des notes faibles.&#10;Formule : onset_threshold = clamp(0.65 − 0.5 × sensibilité, 0.05, 0.5)">
                 Sensibilité de détection
                 <span id="threshold-display" class="threshold-val">0.50</span>
               </label>
-              <input type="range" id="onset-threshold" class="range-field" min="0.10" max="0.90" step="0.05"
-                value="0.50" aria-label="Seuil de détection des notes" />
+              <input type="range" id="onset-threshold" class="range-field" min="0" max="1" step="0.01"
+                value="0.40" aria-label="Sensibilité de détection des notes" />
               <div class="range-labels">
-                <span>Moins de notes</span>
-                <span>Plus de notes</span>
+                <span>Haute sensibilité</span>
+                <span>Basse sensibilité</span>
               </div>
             </div>
 

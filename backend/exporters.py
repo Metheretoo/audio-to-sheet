@@ -20,8 +20,20 @@ def export_all_formats(score_data: dict, voice_split, output_dir: str, base_name
             export_musicxml(score_data, xml_path)
             generated_files["musicxml"] = xml_path
             logger.info(f"[Export] MusicXML généré : {xml_path}")
+        except ImportError as e:
+            # music21 manquant : erreur explicite, pas silencieuse
+            logger.error(f"[Export] music21 requis pour MusicXML — non installé : {e}")
+            generated_files["_warnings"] = generated_files.get("_warnings", [])
+            generated_files["_warnings"].append(
+                "music21 n'est pas installé. L'export MusicXML a été ignoré. "
+                "Installer avec : pip install music21"
+            )
         except Exception as e:
             logger.error(f"[Export] Erreur MusicXML : {e}")
+            generated_files["_warnings"] = generated_files.get("_warnings", [])
+            generated_files["_warnings"].append(
+                f"Erreur lors de l'export MusicXML : {e}"
+            )
 
     # 2. Export MIDI & PDF via midi_exporter (LilyPond)
     needs_midi = "midi" in formats or "mid" in formats

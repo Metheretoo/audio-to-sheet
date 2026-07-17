@@ -70,13 +70,13 @@ transcriber:
 # SÉPARATION AUDIO (DEMUCS)
 # ─────────────────────────────────────────────────────────────────────────────
 demucs:
-  enabled: true
+  enabled: false  # [P3] Désactivé par défaut piano solo (Phase 3)
   model: "htdemucs"  # htdemucs | htdemucs_ft | mdx_extra
   device: "auto"     # auto | cuda | mps | cpu
   shifts: 1          # nombre de shifts pour test-time augmentation
   overlap: 0.25      # chevauchement entre segments
   segment_length: 7.8  # secondes
-  two_stems: "piano" # piano | vocals | drums | bass | other
+  two_stems: "other" # [FIX] "other" = on isole le piano (retire les autres)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # QUANTIFICATION RYTHMIQUE

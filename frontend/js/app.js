@@ -3,7 +3,7 @@
  *
  * Responsabilités :
  *  - Gestion upload (drag & drop + sélection)
- *  - Appel de l'API Flask (/api/transcribe/start + SSE /api/transcribe/progress/<job_id>)
+ *  - Appel de l'API (/api/transcribe + SSE /api/transcribe-progress/<job_id>)
  *  - Affichage de la progression TEMPS RÉEL par étapes
  *  - Câblage de la barre d'outils (éditeur)
  *  - Export PDF (impression navigateur) et MIDI (API)
@@ -20,7 +20,7 @@ let renderer = null;
 let editor = null;
 let player = null;
 let currentJobId = null;
-let currentEventSource = null;
+let currentPollingTimer = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   /* Notification onglet (alerte de fin) */
@@ -67,16 +67,13 @@ async function fetchDeviceInfo() {
     const device = data.device_type || 'unknown';
     const name = data.device_name || device.toUpperCase();
 
-    // Icônes selon le type de device
     const icons = { cuda: '🟢', mps: '🔵', cpu: '🟡', unknown: '🔴' };
     icon.textContent = icons[device] ?? '⚙️';
     label.textContent = name;
 
-    // Classe CSS colorée
     badge.classList.remove('device-cuda', 'device-mps', 'device-cpu', 'device-unknown');
     badge.classList.add(`device-${device}`);
 
-    // Tooltip détaillé
     const labels = { cuda: 'NVIDIA CUDA', mps: 'Apple Metal (MPS)', cpu: 'Processeur (CPU)', unknown: 'Inconnu' };
     badge.title = `Accélérateur IA : ${labels[device] ?? device} — ${name}`;
 
@@ -100,13 +97,11 @@ function initUploadZone() {
 
   let selectedFile = null;
 
-  /* Sélection via l'input */
   fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) selectFile(file);
   });
 
-  /* Clic sur la drop-zone */
   dropZone.addEventListener('click', (e) => {
     if (e.target.id !== 'file-label' && !e.target.closest('#file-label')) {
       fileInput.click();
@@ -117,7 +112,6 @@ function initUploadZone() {
     if (e.key === 'Enter' || e.key === ' ') fileInput.click();
   });
 
-  /* Drag & drop */
   ['dragenter', 'dragover'].forEach(ev => {
     dropZone.addEventListener(ev, (e) => {
       e.preventDefault();
@@ -139,8 +133,7 @@ function initUploadZone() {
 
   function selectFile(file) {
     const ext = file.name.split('.').pop().toLowerCase();
-    if (!['mp3', 'wav', 'flac'].includes(ext) &&
-      !file.type.includes('audio')) {
+    if (!['mp3', 'wav', 'flac'].includes(ext) && !file.type.includes('audio')) {
       showToast('⚠️ Veuillez sélectionner un fichier MP3, WAV ou FLAC.', 'error');
       return;
     }
@@ -149,13 +142,11 @@ function initUploadZone() {
     transBtn.disabled = false;
   }
 
-  /* Bouton "Transcrire" */
   transBtn.addEventListener('click', () => {
     if (!selectedFile) return;
     startTranscription(selectedFile);
   });
 
-  /* Bouton "Nouveau fichier" */
   document.getElementById('btn-new-upload')?.addEventListener('click', () => {
     if (player) player.stop();
     showSection('upload');
@@ -165,7 +156,6 @@ function initUploadZone() {
     transBtn.disabled = true;
     currentJobId = null;
     window.currentScoreData = null;
-    // Réinitialiser les blocs V2
     const timeSigSel = document.getElementById('time-sig');
     if (timeSigSel) delete timeSigSel.dataset.userOverride;
     const meterBadge = document.getElementById('meter-auto-badge');
@@ -196,10 +186,9 @@ function initThresholdSlider() {
    ═══════════════════════════════════════════════════════════════════════════ */
 function initTranscriptionOptions() {
   const hqCheckbox = document.getElementById('hq-piano-mode');
-  let _updatingFromPresetMatch = false; // Guard against cascade
+  let _updatingFromPresetMatch = false;
   const presetBtns = document.querySelectorAll('.preset-btn');
 
-  // Elements advanced settings
   const useDemucsCb = document.getElementById('use-demucs');
   const removeShortCb = document.getElementById('remove-short-notes');
   const minNoteInput = document.getElementById('min-note-duration');
@@ -218,17 +207,14 @@ function initTranscriptionOptions() {
     const radio = document.querySelector('input[name="transcriber"]:checked');
     return radio ? radio.value : 'piano_transcription';
   }
-
   function setTranscriberValue(val) {
     const radio = document.querySelector(`input[name="transcriber"][value="${val}"]`);
     if (radio) radio.checked = true;
   }
-
   function getQuantizationValue() {
     const radio = document.querySelector('input[name="quantization"]:checked');
     return radio ? radio.value : 'standard';
   }
-
   function setQuantizationValue(val) {
     const radio = document.querySelector(`input[name="quantization"][value="${val}"]`);
     if (radio) radio.checked = true;
@@ -236,12 +222,16 @@ function initTranscriptionOptions() {
 
   function applyPreset(presetName) {
     presetBtns.forEach(btn => {
-      if (btn.dataset.preset === presetName) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
+      btn.classList.toggle('active', btn.dataset.preset === presetName);
     });
+
+    const setHqChecked = (v) => {
+      if (hqCheckbox && hqCheckbox.checked !== v) {
+        _updatingFromPresetMatch = true;
+        hqCheckbox.checked = v;
+        _updatingFromPresetMatch = false;
+      }
+    };
 
     if (presetName === 'rapide') {
       setTranscriberValue('basic_pitch');
@@ -270,22 +260,17 @@ function initTranscriptionOptions() {
       if (enableTriplets) enableTriplets.checked = false;
       if (thresholdSlider) thresholdSlider.value = 0.50;
     } else if (presetName === 'classique') {
-      // === Classique Pro — optimisé pour piano classique (Chopin, Mazurka...) ===
-      // Sensibilité 0.65 : détecte les notes douces sans les artefacts
-      // Quantification standard : évite la soupe de notes
-      setTranscriberValue('piano_transcription');
-      if (useDemucsCb) useDemucsCb.checked = true;
-      setQuantizationValue('standard');
+      setTranscriberValue('transkun');
+      if (useDemucsCb) useDemucsCb.checked = false;
+      setQuantizationValue('light');
       if (removeShortCb) removeShortCb.checked = false;
-      //if (minNoteInput) minNoteInput.value = 40;
       if (mergeNearCb) mergeNearCb.checked = false;
-      //if (mergeGapInput) mergeGapInput.value = 25;
       if (splitHandsCb) splitHandsCb.checked = true;
       if (detectTempoCb) detectTempoCb.checked = true;
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
-      if (thresholdSlider) thresholdSlider.value = 0.65;
+      if (thresholdSlider) thresholdSlider.value = 0.85;
     } else if (presetName === 'studio') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = true;
@@ -303,7 +288,7 @@ function initTranscriptionOptions() {
     } else if (presetName === 'jazz') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
-      setQuantizationValue('heavy'); // Arrondi à la croche
+      setQuantizationValue('heavy');
       if (removeShortCb) removeShortCb.checked = false;
       if (minNoteInput) minNoteInput.value = 20;
       if (mergeNearCb) mergeNearCb.checked = false;
@@ -316,33 +301,24 @@ function initTranscriptionOptions() {
       if (thresholdSlider) thresholdSlider.value = 0.50;
     }
 
-    // Mettre à jour l'affichage du seuil
     const display = document.getElementById('threshold-display');
     if (display && thresholdSlider) {
       display.textContent = parseFloat(thresholdSlider.value).toFixed(2);
     }
-
     toggleManualFields();
   }
 
   function toggleManualFields() {
     const tempoOverrideItem = document.getElementById('tempo-override-item');
     if (tempoOverrideItem) {
-      if (detectTempoCb && detectTempoCb.checked) {
-        tempoOverrideItem.style.opacity = '0.5';
-        tempoOverrideItem.style.pointerEvents = 'none';
-        const tempoInput = document.getElementById('tempo-override');
-        if (tempoInput) tempoInput.value = '';
-      } else {
-        tempoOverrideItem.style.opacity = '1';
-        tempoOverrideItem.style.pointerEvents = 'auto';
-      }
+      const disabled = detectTempoCb && detectTempoCb.checked;
+      tempoOverrideItem.style.opacity = disabled ? '0.5' : '1';
+      tempoOverrideItem.style.pointerEvents = disabled ? 'none' : 'auto';
+      const tempoInput = document.getElementById('tempo-override');
+      if (tempoInput && disabled) tempoInput.value = '';
     }
   }
 
-  // ── Affichage pédale / accords : bascule instantanée, sans re-transcrire ──
-  // (l'utilisateur peut activer/désactiver ces annotations à tout moment,
-  // y compris après une transcription déjà terminée)
   const showPedalCb = document.getElementById('show-pedal');
   const showChordsCbToggle = document.getElementById('show-chords');
 
@@ -350,286 +326,171 @@ function initTranscriptionOptions() {
     if (!renderer) return;
     renderer.showPedals = showPedalCb ? showPedalCb.checked : true;
     renderer.showChordSymbols = showChordsCbToggle ? showChordsCbToggle.checked : false;
-    if (window.currentScoreData) {
-      renderer.render(window.currentScoreData);
-    }
+    if (window.currentScoreData) renderer.render(window.currentScoreData);
   }
   if (showPedalCb) showPedalCb.addEventListener('change', refreshDisplayToggles);
   if (showChordsCbToggle) showChordsCbToggle.addEventListener('change', refreshDisplayToggles);
 
-  presetBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      applyPreset(btn.dataset.preset);
-    });
-  });
+  presetBtns.forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
 
   const allControls = [
     useDemucsCb, removeShortCb, minNoteInput, mergeNearCb, mergeGapInput,
     splitHandsCb, detectTempoCb, detectKeyCb, thresholdSlider, enableRubato, enableTriplets
   ];
-
   allControls.forEach(ctrl => {
     if (!ctrl) return;
-    ctrl.addEventListener('change', () => {
-      checkPresetMatch();
-      toggleManualFields();
-    });
+    ctrl.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); });
     if (ctrl.tagName === 'INPUT' && (ctrl.type === 'number' || ctrl.type === 'range')) {
-      ctrl.addEventListener('input', () => {
-        checkPresetMatch();
-        toggleManualFields();
-      });
+      ctrl.addEventListener('input', () => { checkPresetMatch(); toggleManualFields(); });
     }
   });
-
-  document.querySelectorAll('input[name="transcriber"]').forEach(r => {
-    r.addEventListener('change', () => {
-      checkPresetMatch();
-      toggleManualFields();
-    });
-  });
-
-  document.querySelectorAll('input[name="quantization"]').forEach(r => {
-    r.addEventListener('change', () => {
-      checkPresetMatch();
-      toggleManualFields();
-    });
-  });
+  document.querySelectorAll('input[name="transcriber"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); }));
+  document.querySelectorAll('input[name="quantization"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); }));
 
   function checkPresetMatch() {
-    const currentTranscriber = getTranscriberValue();
-    const currentDemucs = useDemucsCb ? useDemucsCb.checked : false;
-    const currentQuantization = getQuantizationValue();
-    const currentRemoveShort = removeShortCb ? removeShortCb.checked : false;
-    const currentMergeNear = mergeNearCb ? mergeNearCb.checked : false;
-    const currentSplitHands = splitHandsCb ? splitHandsCb.checked : false;
-    const currentDetectTempo = detectTempoCb ? detectTempoCb.checked : false;
-    const currentDetectKey = detectKeyCb ? detectKeyCb.checked : false;
-    const currentenableRubato = enableRubato ? enableRubato.checked : false;
-    const currentenableTriplets = enableTriplets ? enableTriplets.checked : false;
-    const currentThreshold = thresholdSlider ? parseFloat(thresholdSlider.value) : 0.50;
+    const ct = getTranscriberValue();
+    const cd = useDemucsCb ? useDemucsCb.checked : false;
+    const cq = getQuantizationValue();
+    const crs = removeShortCb ? removeShortCb.checked : false;
+    const cmn = mergeNearCb ? mergeNearCb.checked : false;
+    const csh = splitHandsCb ? splitHandsCb.checked : false;
+    const cdt = detectTempoCb ? detectTempoCb.checked : false;
+    const cdk = detectKeyCb ? detectKeyCb.checked : false;
+    const crb = enableRubato ? enableRubato.checked : false;
+    const ctr = enableTriplets ? enableTriplets.checked : false;
+    const ctH = thresholdSlider ? parseFloat(thresholdSlider.value) : 0.50;
+    const setHq = (v) => { if (hqCheckbox && hqCheckbox.checked !== v) { _updatingFromPresetMatch = true; hqCheckbox.checked = v; _updatingFromPresetMatch = false; } };
 
-    // Utiliser le flag pour bloquer la cascade hqCheckbox→applyPreset
-    const setHqChecked = (val) => {
-      if (hqCheckbox && hqCheckbox.checked !== val) {
-        _updatingFromPresetMatch = true;
-        hqCheckbox.checked = val;
-        _updatingFromPresetMatch = false;
-      }
-    };
-
-    if (
-      currentTranscriber === 'piano_transcription' &&
-      currentDemucs === true &&
-      currentQuantization === 'standard' &&
-      currentRemoveShort === false &&
-      currentMergeNear === false &&
-      currentSplitHands === true &&
-      currentDetectTempo === true &&
-      currentDetectKey === true &&
-      currentenableRubato === true &&
-      currentenableTriplets === true
-    ) {
-      presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'studio'));
-      setHqChecked(true);
-    }
-    else if (
-      currentTranscriber === 'piano_transcription' &&
-      currentDemucs === false &&
-      currentQuantization === 'standard' &&
-      currentRemoveShort === false &&
-      currentMergeNear === false &&
-      currentSplitHands === true &&
-      currentDetectTempo === true &&
-      currentDetectKey === true &&
-      currentenableRubato === false &&
-      currentenableTriplets === false
-    ) {
-      presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'equilibre'));
-      setHqChecked(false);
-    }
-    else if (
-      currentTranscriber === 'basic_pitch' &&
-      currentDemucs === false &&
-      currentQuantization === 'light' &&
-      currentRemoveShort === false &&
-      currentMergeNear === false &&
-      currentSplitHands === false &&
-      currentDetectTempo === false &&
-      currentDetectKey === false &&
-      currentenableRubato === false &&
-      currentenableTriplets === false
-    ) {
-      presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'rapide'));
-      setHqChecked(false);
-    }
-    else if (
-      currentTranscriber === 'piano_transcription' &&
-      currentDemucs === true &&
-      currentQuantization === 'standard' &&
-      currentRemoveShort === true &&
-      currentMergeNear === true &&
-      currentSplitHands === true &&
-      currentDetectTempo === true &&
-      currentDetectKey === true &&
-      currentenableRubato === true &&
-      currentenableTriplets === true &&
-      Math.abs(currentThreshold - 0.65) < 0.01 &&
-      parseInt(minNoteInput?.value || 50) >= 35 &&
-      parseInt(mergeGapInput?.value || 30) >= 20
-    ) {
-      presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'classique'));
-      setHqChecked(false);
-    }
-    else if (
-      currentTranscriber === 'piano_transcription' &&
-      currentDemucs === true &&
-      currentQuantization === 'heavy' &&
-      currentRemoveShort === false &&
-      currentMergeNear === false &&
-      currentSplitHands === true &&
-      currentDetectTempo === true &&
-      currentDetectKey === true &&
-      currentenableRubato === false &&
-      currentenableTriplets === false &&
-      Math.abs(currentThreshold - 0.50) < 0.01
-    ) {
-      presetBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === 'jazz'));
-      setHqChecked(false);
-    }
-    else {
-      // Paramètres personnalisés — pas de preset actif
-      presetBtns.forEach(btn => btn.classList.remove('active'));
-      setHqChecked(false);
+    if (ct === 'piano_transcription' && cd && cq === 'standard' && !crs && !cmn && csh && cdt && cdk && crb && ctr) {
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'studio'));
+      setHq(true);
+    } else if (ct === 'piano_transcription' && !cd && cq === 'standard' && !crs && !cmn && csh && cdt && cdk && !crb && !ctr) {
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'equilibre'));
+      setHq(false);
+    } else if (ct === 'basic_pitch' && !cd && cq === 'light' && !crs && !cmn && !csh && !cdt && !cdk && !crb && !ctr) {
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'rapide'));
+      setHq(false);
+    } else if (ct === 'piano_transcription' && cd && cq === 'heavy' && !crs && !cmn && csh && cdt && cdk && !crb && !ctr && Math.abs(ctH - 0.50) < 0.01) {
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'jazz'));
+      setHq(false);
+    } else {
+      presetBtns.forEach(b => b.classList.remove('active'));
+      setHq(false);
     }
   }
 
   applyPreset('equilibre');
 }
 
+
 /* ═══════════════════════════════════════════════════════════════════════════
-   Transcription — Version SSE (temps réel)
+   Polling Progress subscription (remplace SSE par polling HTTP)
    ═══════════════════════════════════════════════════════════════════════════ */
-async function startTranscription(file) {
-  if (player) player.stop();
-  showSection('loading');
-  resetProgressUI();
-
-  // Nettoyer les fichiers temporaires du job précédent
-  try {
-    await fetch('/api/cleanup', { method: 'POST' });
-  } catch (_) { /* non bloquant */ }
-
-  const formData = new FormData();
-  formData.append('audio', file);
-
-  /* Paramètres */
-  const threshold = document.getElementById('onset-threshold')?.value || '0.5';
-  const timeSig = document.getElementById('time-sig')?.value || '4/4';
-  const tempoInput = document.getElementById('tempo-override')?.value || '';
-  const keySig = document.getElementById('key-sig-upload')?.value || 'C';
-
-  // Marquer le sélecteur de mesure comme défini par l'utilisateur
-  // si la valeur n'est pas 4/4 (valeur par défaut) — permet au système V2
-  // de ne pas l'écraser avec l'auto-détection
-  const timeSigEl = document.getElementById('time-sig');
-  if (timeSigEl && timeSig !== '4/4') {
-    timeSigEl.dataset.userOverride = '1';
-  } else if (timeSigEl) {
-    delete timeSigEl.dataset.userOverride;
+function subscribeToProgress(jobId) {
+  if (currentPollingTimer) {
+    clearInterval(currentPollingTimer);
+    currentPollingTimer = null;
   }
 
-  const transcriber = document.querySelector('input[name="transcriber"]:checked')?.value || 'piano_transcription';
-  const useDemucs = document.getElementById('use-demucs')?.checked ? 'true' : 'false';
-  const removeShortNotes = document.getElementById('remove-short-notes')?.checked ? 'true' : 'false';
-  const minNoteDuration = document.getElementById('min-note-duration')?.value || '50';
-  const mergeNearNotes = document.getElementById('merge-near-notes')?.checked ? 'true' : 'false';
-  const mergeGapMs = document.getElementById('merge-gap-ms')?.value || '30';
-  const quantization = document.querySelector('input[name="quantization"]:checked')?.value || 'standard';
-  const splitHands = document.getElementById('split-hands')?.checked ? 'true' : 'false';
-  const detectTempo = document.getElementById('detect-tempo')?.checked ? 'true' : 'false';
-  const detectMeter = document.getElementById('detect-meter')?.checked ? 'true' : 'false';
-  const detectKey = document.getElementById('detect-key')?.checked ? 'true' : 'false';
-  const enableRubato = document.getElementById('enable-rubato')?.checked ? 'true' : 'false';
-  const enableTriplets = document.getElementById('enable-triplets')?.checked ? 'true' : 'false';
+  console.log('[Polling] Début du polling pour job', jobId);
+  setLoadingStep('🔄 Vérification de la progression…');
 
-  formData.append('onset_threshold', threshold);
-  formData.append('time_sig', timeSig);
-  formData.append('key_sig', keySig);
-  if (tempoInput) formData.append('tempo', tempoInput);
-
-  formData.append('transcriber', transcriber);
-  formData.append('use_demucs', useDemucs);
-  formData.append('remove_short_notes', removeShortNotes);
-  formData.append('minimum_note_duration', minNoteDuration);
-  formData.append('merge_near_notes', mergeNearNotes);
-  formData.append('merge_gap_ms', mergeGapMs);
-  formData.append('quantization_level', quantization);
-  formData.append('split_hands', splitHands);
-  formData.append('detect_tempo', detectTempo);
-  formData.append('detect_meter', detectMeter);
-  formData.append('detect_key', detectKey);
-  formData.append('enable_rubato', enableRubato);
-  formData.append('enable_triplets', enableTriplets);
-
-  // ── Noms lisibles des modèles ──────────────────────────────────────
-  const MODEL_LABELS = {
-    'piano_transcription': 'Piano Transcription (CRNN)',
-    'basic_pitch': 'Basic Pitch (Spotify)',
-    'transkun': 'Transkun (Transformer)',
-    'hft': 'HFT-Transformer',
-    'mt3': 'MT3 (Google)',
-    'ensemble': 'Ensemble multi-modèles',
-  };
-  const modelLabel = MODEL_LABELS[transcriber] || transcriber;
-
-  // ── Simulation de progression (mode synchrone sans SSE) ──────────
-  // Phases : upload(0→10%), chargement modèle(10→25%),
-  //          transcription IA(25→80%), post-traitement(80→92%), export(92→97%)
-  const phases = [
-    { pct: 10,  step: `📤 Envoi du fichier…`,                    ms: 800  },
-    { pct: 25,  step: `🧠 Chargement modèle — ${modelLabel}…`,   ms: 4000 },
-    { pct: 80,  step: `🎵 Transcription IA — ${modelLabel}…`,    ms: 45000},
-    { pct: 92,  step: `📐 Quantification & séparation mains…`,   ms: 5000 },
-    { pct: 97,  step: `💾 Construction partition…`,              ms: 3000 },
-  ];
-
-  let phaseIdx = 0;
-  let currentPct = 0;
-  let phaseStartTime = Date.now();
-
-  const progressTimer = setInterval(() => {
-    if (phaseIdx >= phases.length) return;
-    const phase = phases[phaseIdx];
-    const elapsed = Date.now() - phaseStartTime;
-    const ratio = Math.min(1, elapsed / phase.ms);
-    const pct = currentPct + ratio * (phase.pct - currentPct);
-
-    updateProgress(pct);
-
-    if (ratio >= 1) {
-      currentPct = phase.pct;
-      phaseStartTime = Date.now();
-      setLoadingStep(phase.step);
-      phaseIdx++;
+  currentPollingTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/transcribe/result/${jobId}`);
+      
+      if (res.status === 202) {
+        // Job en cours
+        const data = await res.json();
+        updateProgress(50);
+        setLoadingStep('⏳ Transcription en cours…');
+        return;
+      }
+      
+      if (res.status === 200) {
+        // Terminé
+        const result = await res.json();
+        clearInterval(currentPollingTimer);
+        currentPollingTimer = null;
+        
+        if (result.success) {
+          updateProgress(100);
+          setLoadingStep('✅ Transcription terminée');
+          handleTranscriptionResult(result);
+        } else {
+          showSection('upload');
+          showToast(`❌ ${result.error || 'Échec de la transcription'}`, 'error', 8000);
+        }
+        return;
+      }
+      
+      if (res.status === 500) {
+        // Erreur serveur (pipeline a échoué)
+        const result = await res.json();
+        clearInterval(currentPollingTimer);
+        currentPollingTimer = null;
+        showSection('upload');
+        showToast(`❌ ${result.error || 'Erreur serveur pendant la transcription'}`, 'error', 8000);
+        return;
+      }
+      
+      // Erreur 404 ou autre
+      clearInterval(currentPollingTimer);
+      currentPollingTimer = null;
+      showSection('upload');
+      showToast('❌ Job introuvable ou expiré', 'error', 8000);
+      
+    } catch (err) {
+      console.error('[Polling] Erreur:', err);
+      clearInterval(currentPollingTimer);
+      currentPollingTimer = null;
+      showSection('upload');
+      showToast(`❌ Erreur de polling : ${err.message}`, 'error', 8000);
     }
-  }, 100);
+  }, 1000); // Polling toutes les 1 seconde
+}
 
-  // Afficher immédiatement le premier message + lancer le fetch
-  setLoadingStep(`📤 Envoi du fichier…`);
-  updateProgress(0);
+/* ═══════════════════════════════════════════════════════════════════════════
+   Lancer la transcription
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function startTranscription(file) {
+  const modelLabel = document.querySelector('input[name="transcriber"]:checked')?.value || 'piano_transcription';
+
+  resetProgressUI();
+  showSection('loading');
+  document.title = `⏳ Transcription en cours... - ${window.originalDocumentTitle}`;
+
+  const formData = new FormData();
+  formData.append('audio', file, file.name);
+  formData.append('onset_threshold', document.getElementById('onset-threshold').value);
+  formData.append('frame_threshold', document.getElementById('frame-threshold')?.value || '0.1');
+  formData.append('offset_threshold', document.getElementById('offset-threshold')?.value || '0.3');
+  formData.append('transcriber', document.querySelector('input[name="transcriber"]:checked')?.value || 'piano_transcription');
+  formData.append('quantization', document.querySelector('input[name="quantization"]:checked')?.value || 'standard');
+  formData.append('use_demucs', document.getElementById('use-demucs')?.checked ? 'true' : 'false');
+  formData.append('remove_short_notes', document.getElementById('remove-short-notes')?.checked ? 'true' : 'false');
+  formData.append('minimum_note_duration', document.getElementById('min-note-duration')?.value || '50');
+  formData.append('merge_near_notes', document.getElementById('merge-near-notes')?.checked ? 'true' : 'false');
+  formData.append('merge_gap_ms', document.getElementById('merge-gap-ms')?.value || '30');
+  formData.append('split_hands', document.getElementById('split-hands')?.checked ? 'true' : 'false');
+  formData.append('detect_tempo', document.getElementById('detect-tempo')?.checked ? 'true' : 'false');
+  formData.append('detect_meter', document.getElementById('detect-meter')?.checked ? 'true' : 'false');
+  formData.append('detect_key', document.getElementById('detect-key')?.checked ? 'true' : 'false');
+  formData.append('enable_rubato', document.getElementById('enable-rubato')?.checked ? 'true' : 'false');
+  formData.append('enable_triplets', document.getElementById('enable-triplets')?.checked ? 'true' : 'false');
+  formData.append('strict_mode', document.getElementById('strict-mode')?.checked ? 'true' : 'false');
+  formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
+  formData.append('key_sig', document.getElementById('key-sig-toolbar')?.value || 'C');
+
+  const tempoOverride = document.getElementById('tempo-override')?.value;
+  if (tempoOverride) formData.append('tempo', tempoOverride);
 
   try {
-    const response = await fetch('/api/transcribe', {
-      method: 'POST',
-      body: formData,
-    });
-
-    clearInterval(progressTimer);
+    const response = await fetch('/api/transcribe', { method: 'POST', body: formData });
 
     if (!response.ok) {
-      const err = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(err.error || `Erreur HTTP ${response.status}`);
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Erreur HTTP ${response.status}`);
     }
 
     const data = await response.json();
@@ -638,15 +499,13 @@ async function startTranscription(file) {
       throw new Error(data.error || 'Échec de la transcription');
     }
 
-    // Sauter à 100% avant d'afficher le résultat
-    updateProgress(100);
-    setLoadingStep(`✅ Terminé — ${modelLabel}`);
+    const jobId = data.jobId;
+    currentJobId = jobId;
 
-    // Traiter le résultat directement
-    handleTranscriptionResult(data);
+    /* Démarrer le polling de progression */
+    subscribeToProgress(jobId);
 
   } catch (err) {
-    clearInterval(progressTimer);
     showSection('upload');
     showToast(`❌ Erreur : ${err.message}`, 'error', 8000);
     console.error('[Transcription]', err);
@@ -657,134 +516,61 @@ async function startTranscription(file) {
   }
 }
 
-async function connectSSE(jobId) {
-  return new Promise((resolve, reject) => {
-    const eventSource = new EventSource(`/api/transcribe/progress/${jobId}`);
-    currentEventSource = eventSource;
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mise à jour des badges de stade
+   ═══════════════════════════════════════════════════════════════════════════ */
+function updateStageBadgesForStep(step) {
+  const stepToId = {
+    'init': 'load_audio',
+    'preprocess': 'load_audio',
+    'demucs': 'demucs',
+    'transcription': 'transcribe',
+    'quantization': 'quantize',
+    'split_hands': 'split_hands',
+    'export': 'build_score',
+    'done': 'export',
+  };
+  const stageId = stepToId[step];
+  if (!stageId) return;
 
-    eventSource.onopen = () => {
-      console.log('[SSE] Connexion établie');
-    };
-
-    eventSource.addEventListener('progress', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        handleProgressEvent(data);
-      } catch (e) {
-        console.warn('[SSE] Erreur parsing progress:', e);
-      }
-    });
-
-    eventSource.addEventListener('heartbeat', (event) => {
-      // Heartbeat reçu, connexion vivante
-    });
-
-    eventSource.addEventListener('error', (event) => {
-      console.error('[SSE] Erreur:', event);
-      // Ne pas rejeter ici, laisser onerror gérer
-    });
-
-    eventSource.onerror = (event) => {
-      if (eventSource.readyState === EventSource.CLOSED) {
-        console.log('[SSE] Connexion fermée');
-        // La connexion se ferme normalement à la fin
-      }
-    };
-
-    // Écouter aussi les messages sans type (compatibilité)
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'progress') {
-          handleProgressEvent(data);
-        } else if (data.type === 'complete' || data.type === 'error') {
-          // Le résultat final sera récupéré via /api/transcribe/result
-          eventSource.close();
-          currentEventSource = null;
-          fetchResult(jobId).then(resolve).catch(reject);
-        }
-      } catch (e) {
-        console.warn('[SSE] Erreur parsing message:', e);
-      }
-    };
-  });
-}
-
-function handleProgressEvent(data) {
-  const { stage, stage_index, total_stages, percent, message, elapsed, stage_elapsed, metadata } = data;
-
-  // Mettre à jour la barre de progression
-  updateProgress(percent);
-
-  // Mettre à jour le texte de l'étape
-  setLoadingStep(message);
-
-  // Mettre à jour le badge d'étape si présent
-  updateStageBadges(stage, stage_index, total_stages);
-
-  // Afficher des infos spécifiques selon l'étape
-  if (metadata) {
-    handleStageMetadata(stage, metadata);
-  }
-}
-
-function updateStageBadges(currentStage, currentIndex, totalStages) {
-  const stages = [
-    { id: 'load_audio', label: 'Chargement' },
-    { id: 'demucs', label: 'Demucs' },
-    { id: 'transcribe', label: 'Transcription' },
-    { id: 'quantize', label: 'Quantification' },
-    { id: 'split_hands', label: 'Séparation mains' },
-    { id: 'build_score', label: 'Partition' },
-    { id: 'export', label: 'Export' },
-  ];
-
-  stages.forEach((s, i) => {
-    const badge = document.getElementById(`stage-${s.id}`);
+  ['load_audio', 'demucs', 'transcribe', 'quantize', 'split_hands', 'build_score', 'export'].forEach(id => {
+    const badge = document.getElementById(`stage-${id}`);
     if (!badge) return;
-
     badge.classList.remove('active', 'completed', 'pending');
-    if (i < currentIndex) {
+    if (id === stageId) badge.classList.add('active');
+    else if (['load_audio', 'demucs', 'transcribe', 'quantize', 'split_hands', 'build_score', 'export'].indexOf(id) < ['load_audio', 'demucs', 'transcribe', 'quantize', 'split_hands', 'build_score', 'export'].indexOf(stageId)) {
       badge.classList.add('completed');
-    } else if (i === currentIndex) {
-      badge.classList.add('active');
     } else {
       badge.classList.add('pending');
     }
   });
 }
 
-function handleStageMetadata(stage, metadata) {
-  // Afficher des infos spécifiques selon l'étape
-  if (stage === 'demucs' && metadata.model) {
-    setLoadingStep(`Séparation Demucs (${metadata.model})...`);
-  } else if (stage === 'transcribe' && metadata.model) {
-    setLoadingStep(`Transcription IA (${metadata.model})...`);
-  }
+/* ═══════════════════════════════════════════════════════════════════════════
+   UI Progression
+   ═══════════════════════════════════════════════════════════════════════════ */
+function resetProgressUI() {
+  updateProgress(0);
+  setLoadingStep('Initialisation…');
+  ['load_audio', 'demucs', 'transcribe', 'quantize', 'split_hands', 'build_score', 'export'].forEach(id => {
+    const badge = document.getElementById(`stage-${id}`);
+    if (badge) { badge.classList.remove('active', 'completed'); badge.classList.add('pending'); }
+  });
 }
 
-async function fetchResult(jobId) {
-  try {
-    const response = await fetch(`/api/transcribe/result/${jobId}`);
-    if (!response.ok) {
-      if (response.status === 202) {
-        // Encore en cours, attendre un peu et réessayer
-        await sleep(500);
-        return fetchResult(jobId);
-      }
-      const err = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error(err.error || `Erreur HTTP ${response.status}`);
-    }
-
-    const result = await response.json();
-    handleTranscriptionResult(result);
-  } catch (err) {
-    showSection('upload');
-    showToast(`❌ Erreur : ${err.message}`, 'error', 8000);
-    console.error('[Transcription Result]', err);
-  }
+function updateProgress(pct) {
+  const fill = document.getElementById('progress-fill');
+  if (fill) fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
 }
 
+function setLoadingStep(text) {
+  const el = document.getElementById('loading-step');
+  if (el) el.textContent = text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Résultat transcription
+   ═══════════════════════════════════════════════════════════════════════════ */
 function handleTranscriptionResult(result) {
   const { success, score_data, output_files, error, processing_time } = result;
 
@@ -802,43 +588,27 @@ function handleTranscriptionResult(result) {
 
   currentJobId = score_data.jobId;
 
-  /* Légère pause pour que la barre atteigne 100% */
   sleep(400).then(() => {
     showSection('score');
 
-    // La clé réellement utilisée est celle retournée par le backend
-    // (auto-détection Krumhansl-Schmuckler) — pas forcément celle du formulaire
     const detectedKey = score_data.keySignature || 'C';
     const keySigToolbar = document.getElementById('key-sig-toolbar');
-    if (keySigToolbar) {
-      keySigToolbar.value = detectedKey;
-    }
-    // Synchroniser l'affichage pédale / accords avec les cases à cocher
-    // avant le premier rendu (débrayage possible ensuite sans re-transcrire).
+    if (keySigToolbar) keySigToolbar.value = detectedKey;
+
     if (renderer) {
       const showPedalCb = document.getElementById('show-pedal');
       const showChordsCb = document.getElementById('show-chords');
       renderer.showPedals = showPedalCb ? showPedalCb.checked : true;
       renderer.showChordSymbols = showChordsCb ? showChordsCb.checked : false;
     }
-    editor.loadScore(score_data);
-    // Après loadScore (qui reset l'armure), réappliquer la clé détectée
-    if (editor && typeof editor.setKeySignature === 'function') {
-      editor.setKeySignature(detectedKey);
-    }
 
-    // ── Nouvelles fonctionnalités V2 (rétrocompatibles) ──────────────
-    // Stocker scoreData globalement pour le slider tempo
+    editor.loadScore(score_data);
+    if (editor && typeof editor.setKeySignature === 'function') editor.setKeySignature(detectedKey);
+
     window.currentScoreData = score_data;
-    if (score_data.tempoMapMethod) {
-      updateTempoDisplay(score_data);
-      initTempoSlider(score_data.tempo);
-    }
-    if (score_data.detectedMeter) {
-      updateDetectedMeter(score_data.detectedMeter);
-    }
+    if (score_data.tempoMapMethod) { updateTempoDisplay(score_data); initTempoSlider(score_data.tempo); }
+    if (score_data.detectedMeter) updateDetectedMeter(score_data.detectedMeter);
     displayWarnings(score_data.warnings);
-    // ─────────────────────────────────────────────────────────────────
 
     showToast(
       `✅ Partition générée — ${score_data.totalMeasures} mesure(s) · ${score_data.tempo} BPM · ${processing_time.toFixed(1)}s`,
@@ -853,59 +623,25 @@ function handleTranscriptionResult(result) {
 
 function cancelTranscription() {
   if (!currentJobId) return;
-
   fetch(`/api/transcribe/cancel/${currentJobId}`, { method: 'POST' })
     .then(() => {
-      if (currentEventSource) {
-        currentEventSource.close();
-        currentEventSource = null;
-      }
+      if (currentPollingTimer) { clearInterval(currentPollingTimer); currentPollingTimer = null; }
       showSection('upload');
       showToast('⏹️ Transcription annulée', 'info');
     })
-    .catch(err => {
-      showToast(`❌ Erreur annulation : ${err.message}`, 'error');
-    });
+    .catch(err => showToast(`❌ Erreur annulation : ${err.message}`, 'error'));
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   UI Progression
-   ═══════════════════════════════════════════════════════════════════════════ */
-function resetProgressUI() {
-  updateProgress(0);
-  setLoadingStep('Initialisation…');
-  // Réinitialiser les badges d'étapes
-  ['load_audio', 'demucs', 'transcribe', 'quantize', 'split_hands', 'build_score', 'export'].forEach(id => {
-    const badge = document.getElementById(`stage-${id}`);
-    if (badge) {
-      badge.classList.remove('active', 'completed');
-      badge.classList.add('pending');
-    }
-  });
-}
-
-function updateProgress(pct) {
-  const fill = document.getElementById('progress-fill');
-  if (fill) fill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-}
-
-function setLoadingStep(text) {
-  const el = document.getElementById('loading-step');
-  if (el) el.textContent = text;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   V2 — Affichage dynamique du tempo détecté (badge + barre de confiance)
+   V2 — Affichage dynamique du tempo détecté
    ═══════════════════════════════════════════════════════════════════════════ */
 function updateTempoDisplay(scoreData) {
   const infoDiv = document.getElementById('tempo-detected-info');
   if (!infoDiv) return;
 
-  // BPM affiché
   const bpmEl = document.getElementById('tempo-detected-value');
   if (bpmEl) bpmEl.textContent = `${scoreData.tempo} BPM`;
 
-  // Badge méthode : couleur selon la source
   const methodBadge = document.getElementById('tempo-method-badge');
   const methodColors = {
     'madmom': { label: 'TempoMap Pro', color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
@@ -920,20 +656,15 @@ function updateTempoDisplay(scoreData) {
     methodBadge.style.borderColor = m.color;
   }
 
-  // Barre de confiance
   const confBar = document.getElementById('tempo-confidence-bar');
   const confLabel = document.getElementById('tempo-confidence-label');
   if (confBar && scoreData.tempoConfidence !== undefined) {
     const pct = Math.round(scoreData.tempoConfidence * 100);
     confBar.style.width = `${pct}%`;
-    // Couleur de la barre selon la confiance
-    confBar.style.background = pct >= 80 ? '#22c55e'
-      : pct >= 55 ? '#f59e0b'
-        : '#ef4444';
+    confBar.style.background = pct >= 80 ? '#22c55e' : pct >= 55 ? '#f59e0b' : '#ef4444';
     if (confLabel) confLabel.textContent = `${pct}%`;
   }
 
-  // Plage de tempo
   const rangeEl = document.getElementById('tempo-range-label');
   if (rangeEl && scoreData.tempoRange) {
     rangeEl.textContent = `Plage : ${Math.round(scoreData.tempoRange[0])}–${Math.round(scoreData.tempoRange[1])} BPM`;
@@ -944,7 +675,7 @@ function updateTempoDisplay(scoreData) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   V2 — Slider de tempo post-transcription (sans re-analyse)
+   V2 — Slider de tempo post-transcription
    ═══════════════════════════════════════════════════════════════════════════ */
 let _originalTempo = 120;
 
@@ -960,13 +691,11 @@ function initTempoSlider(detectedTempo) {
   if (output) output.textContent = `${detectedTempo} BPM`;
   panel.style.display = 'block';
 
-  // Supprimer les anciens listeners en clonant (évite les doublons)
   const newSlider = slider.cloneNode(true);
   slider.parentNode.replaceChild(newSlider, slider);
   const newReset = reset ? reset.cloneNode(true) : null;
   if (reset && newReset) reset.parentNode.replaceChild(newReset, reset);
 
-  // 1. Événement 'input' : met à jour le texte à l'écran en temps réel pendant le glissement de la souris
   newSlider.addEventListener('input', () => {
     const newTempo = parseInt(newSlider.value);
     const out = document.getElementById('tempo-slider-output');
@@ -975,39 +704,27 @@ function initTempoSlider(detectedTempo) {
     if (bpmEl) bpmEl.textContent = `${newTempo} BPM`;
   });
 
-  // 2. Événement 'change' : applique la modification de tempo SEULEMENT au relâchement de la souris
   newSlider.addEventListener('change', () => {
     const oldTempo = (editor && editor.scoreData) ? (editor.scoreData.tempo || 120) : 120;
     const newTempo = parseInt(newSlider.value);
 
-    // Mettre à jour les structures de données du tempo en priorité
     if (window.currentScoreData) window.currentScoreData.tempo = newTempo;
     if (editor && editor.scoreData) editor.scoreData.tempo = newTempo;
-    if (player) {
-      player._scoreData = editor.getScoreData();
-    }
+    if (player) player._scoreData = editor.getScoreData();
 
     if (player && player.isPlaying) {
-      // Calculer la position actuelle en beats
       let elapsed;
-      if (player.isPaused) {
-        elapsed = player._pauseTime;
-      } else {
-        elapsed = player.audioCtx.currentTime - player._startTime;
-      }
+      if (player.isPaused) elapsed = player._pauseTime;
+      else elapsed = player.audioCtx.currentTime - player._startTime;
       const currentBeat = elapsed * (oldTempo / 60.0);
-
-      // Calculer le nouvel elapsed en secondes
       const newElapsed = currentBeat * (60.0 / newTempo);
 
-      // Reconstruire les événements audio du player avec le nouveau tempo
       player._events = player._buildEvents(player._scoreData);
       player._totalTime = Math.max(...player._events.map(e => e.time + e.duration)) + 0.5;
 
       if (player.isPaused) {
         player._pauseTime = newElapsed;
       } else {
-        // En lecture active : couper les sons et recaler la lecture
         player._stopAllSound();
         player._scheduledNoteKeys = new Set();
         player._startTime = player.audioCtx.currentTime - newElapsed;
@@ -1015,7 +732,6 @@ function initTempoSlider(detectedTempo) {
       }
     }
 
-    // Re-rendre le visuel de la partition
     if (typeof window.rerenderScore === 'function') {
       window.rerenderScore(window.currentScoreData || (editor && editor.scoreData));
     }
@@ -1039,10 +755,8 @@ function updateDetectedMeter(detectedMeter) {
   const timeSigSelect = document.getElementById('time-sig');
   const badge = document.getElementById('meter-auto-badge');
 
-  // Mettre à jour le sélecteur seulement si l'utilisateur n'a pas forcé une valeur
   if (timeSigSelect && !timeSigSelect.dataset.userOverride) {
     const targetVal = `${num}/${den}`;
-    // Vérifier si la valeur existe dans les options
     const hasOption = Array.from(timeSigSelect.options).some(o => o.value === targetVal);
     if (hasOption) {
       timeSigSelect.value = targetVal;
@@ -1059,10 +773,7 @@ function displayWarnings(warnings) {
   const list = document.getElementById('warnings-list');
   if (!panel || !list) return;
 
-  if (!warnings || warnings.length === 0) {
-    panel.style.display = 'none';
-    return;
-  }
+  if (!warnings || warnings.length === 0) { panel.style.display = 'none'; return; }
 
   list.innerHTML = '';
   warnings.forEach(msg => {
@@ -1077,30 +788,19 @@ function displayWarnings(warnings) {
    Barre d'outils
    ═══════════════════════════════════════════════════════════════════════════ */
 function initToolbar() {
-  /* Transposer */
-  document.getElementById('btn-up')?.addEventListener('click', () => {
-    editor.transposeSelected(1);
-  });
-  document.getElementById('btn-down')?.addEventListener('click', () => {
-    editor.transposeSelected(-1);
-  });
+  document.getElementById('btn-up')?.addEventListener('click', () => editor.transposeSelected(1));
+  document.getElementById('btn-down')?.addEventListener('click', () => editor.transposeSelected(-1));
 
-  /* Durées */
   document.querySelectorAll('.dur-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const dur = btn.dataset.dur;
-      editor.setDurationSelected(dur);
+      editor.setDurationSelected(btn.dataset.dur);
       document.querySelectorAll('.dur-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     });
   });
 
-  /* Pointée */
-  document.getElementById('btn-dot')?.addEventListener('click', () => {
-    editor.toggleDotSelected();
-  });
+  document.getElementById('btn-dot')?.addEventListener('click', () => editor.toggleDotSelected());
 
-  /* Main */
   document.getElementById('btn-hand-r')?.addEventListener('click', () => {
     editor.assignHandSelected('treble');
     showToast('Note déplacée → main droite (Sol)', 'info');
@@ -1110,24 +810,12 @@ function initToolbar() {
     showToast('Note déplacée → main gauche (Fa)', 'info');
   });
 
-  /* Ajouter Note / Silence */
-  document.getElementById('btn-add-note')?.addEventListener('click', () => {
-    editor.insertNoteAfterSelected(false);
-  });
-  document.getElementById('btn-add-rest')?.addEventListener('click', () => {
-    editor.insertNoteAfterSelected(true);
-  });
-
-  /* Supprimer */
-  document.getElementById('btn-delete')?.addEventListener('click', () => {
-    editor.deleteSelected();
-  });
-
-  /* Undo / Redo */
+  document.getElementById('btn-add-note')?.addEventListener('click', () => editor.insertNoteAfterSelected(false));
+  document.getElementById('btn-add-rest')?.addEventListener('click', () => editor.insertNoteAfterSelected(true));
+  document.getElementById('btn-delete')?.addEventListener('click', () => editor.deleteSelected());
   document.getElementById('btn-undo')?.addEventListener('click', () => editor.undo());
   document.getElementById('btn-redo')?.addEventListener('click', () => editor.redo());
 
-  /* Armure (tonalité) — toolbar */
   const keySigToolbar = document.getElementById('key-sig-toolbar');
   if (keySigToolbar) {
     keySigToolbar.addEventListener('change', () => {
@@ -1136,41 +824,24 @@ function initToolbar() {
     });
   }
 
-  /* Déplacement temporel ◄ ► */
-  document.getElementById('btn-shift-left')?.addEventListener('click', () => {
-    editor.shiftNoteTime(-1);
-  });
-  document.getElementById('btn-shift-right')?.addEventListener('click', () => {
-    editor.shiftNoteTime(+1);
-  });
+  document.getElementById('btn-shift-left')?.addEventListener('click', () => editor.shiftNoteTime(-1));
+  document.getElementById('btn-shift-right')?.addEventListener('click', () => editor.shiftNoteTime(+1));
 
-  /* Drag & drop SVG */
   if (typeof renderer !== 'undefined' && renderer && typeof renderer.enableDragDrop === 'function') {
     renderer.enableDragDrop(editor);
   }
 
-  /* Export PDF */
   document.getElementById('btn-export-pdf')?.addEventListener('click', exportPdf);
-
-  /* Export MIDI */
   document.getElementById('btn-export-midi')?.addEventListener('click', exportMidi);
-
-  /* Export MusicXML */
   document.getElementById('btn-export-xml')?.addEventListener('click', exportXml);
 
-  /* ── Lecture (Play/Pause) ─────────────────────────────────────────── */
   player = new ScorePlayer(renderer);
-
   document.getElementById('btn-play-pause')?.addEventListener('click', () => {
     const scoreData = editor.getScoreData();
-    if (!scoreData) {
-      showToast('Aucune partition à lire.', 'error');
-      return;
-    }
+    if (!scoreData) { showToast('Aucune partition à lire.', 'error'); return; }
     player.togglePlayPause(scoreData);
   });
 
-  /* Timeline scrubbing */
   const timeline = document.getElementById('playback-timeline');
   if (timeline) {
     timeline.addEventListener('click', (e) => {
@@ -1186,10 +857,7 @@ function initToolbar() {
    ═══════════════════════════════════════════════════════════════════════════ */
 async function exportMidi() {
   const scoreData = editor.getScoreData();
-  if (!scoreData) {
-    showToast('⚠️ Aucune partition à exporter.', 'error');
-    return;
-  }
+  if (!scoreData) { showToast('⚠️ Aucune partition à exporter.', 'error'); return; }
 
   showToast('🎵 Génération du MIDI en cours…', 'info');
 
@@ -1205,7 +873,6 @@ async function exportMidi() {
       throw new Error(err.error || `Erreur HTTP ${response.status}`);
     }
 
-    /* Déclencher le téléchargement */
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1217,7 +884,6 @@ async function exportMidi() {
     URL.revokeObjectURL(url);
 
     showToast('✅ Fichier MIDI téléchargé !', 'success');
-
   } catch (err) {
     showToast(`❌ Erreur export MIDI : ${err.message}`, 'error', 6000);
     console.error('[MIDI Export]', err);
@@ -1225,7 +891,7 @@ async function exportMidi() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Export PDF — Portrait A4, lignes justifiées (toutes à 100% sauf la dernière)
+   Export PDF
    ═══════════════════════════════════════════════════════════════════════════ */
 function exportPdf() {
   const scoreData = editor ? editor.getScoreData() : null;
@@ -1236,30 +902,16 @@ function exportPdf() {
 
   showToast('🖨️ Préparation du PDF…', 'info');
 
-  // ── Cible : 5 mesures par ligne ──────────────────────────────────────────
   const PDF_MPR = 5;
-  const RENDER_W = PDF_MPR * ScoreRenderer.STAVE_W
-    + ScoreRenderer.FIRST_EXTRA
-    + ScoreRenderer.MARGIN_X * 2;          // ≈ 1410 px
-  const SVG_H = ScoreRenderer.ROW_HEIGHT
-    + ScoreRenderer.MARGIN_Y * 2 + 30;     // ≈ 342 px
-
+  const RENDER_W = PDF_MPR * ScoreRenderer.STAVE_W + ScoreRenderer.FIRST_EXTRA + ScoreRenderer.MARGIN_X * 2;
+  const SVG_H = ScoreRenderer.ROW_HEIGHT + ScoreRenderer.MARGIN_Y * 2 + 30;
   const numRows = Math.ceil(scoreData.measures.length / PDF_MPR);
   const rowSvgStrings = [];
 
-  // Mesure vide pour padder les lignes incomplètes → VexFlow étire à pleine largeur
   const [tsNum, tsDen] = scoreData.timeSignature || [4, 4];
   const emptyMeasure = {
-    treble: [{
-      id: '__pad_t__', keys: ['d/5'], durationStr: 'w', dots: 0,
-      isRest: true, startBeat: 0, duration: 4, midiPitch: null,
-      hand: 'treble', amplitude: 0
-    }],
-    bass: [{
-      id: '__pad_b__', keys: ['f/3'], durationStr: 'w', dots: 0,
-      isRest: true, startBeat: 0, duration: 4, midiPitch: null,
-      hand: 'bass', amplitude: 0
-    }],
+    treble: [{ id: '__pad_t__', keys: ['d/5'], durationStr: 'w', dots: 0, isRest: true, startBeat: 0, duration: 4, midiPitch: null, hand: 'treble', amplitude: 0 }],
+    bass: [{ id: '__pad_b__', keys: ['f/3'], durationStr: 'w', dots: 0, isRest: true, startBeat: 0, duration: 4, midiPitch: null, hand: 'bass', amplitude: 0 }],
   };
 
   for (let row = 0; row < numRows; row++) {
@@ -1267,9 +919,7 @@ function exportPdf() {
     const paddedMeasures = rowMeasures.slice();
     while (paddedMeasures.length < PDF_MPR) paddedMeasures.push(emptyMeasure);
 
-    const rowScoreData = Object.assign({}, scoreData, {
-      measures: paddedMeasures, totalMeasures: paddedMeasures.length,
-    });
+    const rowScoreData = Object.assign({}, scoreData, { measures: paddedMeasures, totalMeasures: paddedMeasures.length });
 
     const div = document.createElement('div');
     div.id = '__pdf_row_' + row + '__';
@@ -1277,7 +927,7 @@ function exportPdf() {
     document.body.appendChild(div);
 
     const rowRenderer = new ScoreRenderer(div.id);
-    rowRenderer._forcedMPR = PDF_MPR;   // court-circuite le calcul clientWidth dans renderer.js
+    rowRenderer._forcedMPR = PDF_MPR;
     rowRenderer.render(rowScoreData);
 
     const svgEl = div.querySelector('svg');
@@ -1289,14 +939,10 @@ function exportPdf() {
       svgEl.style.cssText = 'display:block;width:100%;height:auto;';
       rowSvgStrings.push(svgEl.outerHTML);
     }
-
     document.body.removeChild(div);
   }
 
-  const rowSvgsHtml = rowSvgStrings
-    .map(svg => '<div class="score-row">' + svg + '</div>')
-    .join('\n');
-
+  const rowSvgsHtml = rowSvgStrings.map(svg => '<div class="score-row">' + svg + '</div>').join('\n');
   const meta = `Tempo : ${scoreData.tempo} BPM · ${scoreData.timeSignature[0]}/${scoreData.timeSignature[1]} · Tonalité : ${scoreData.keySignature || 'C'} · ${scoreData.totalMeasures} mesure(s)`;
 
   const printWindow = window.open('', '_blank', 'width=900,height=1200');
@@ -1306,40 +952,62 @@ function exportPdf() {
   }
 
   printWindow.document.write(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8"/>
-  <title>AudioScore — Partition Piano</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    @page { size: A4 portrait; margin: 12mm 12mm; }
-    body { background: #fff; font-family: Georgia, serif; color: #111; padding: 4mm 6mm; }
-    h1 { font-size: 14pt; text-align: center; margin-bottom: 2mm; letter-spacing: 0.04em; }
-    .meta { text-align: center; font-size: 8pt; color: #555; margin-bottom: 3mm; }
-    .score-wrap { width: 100%; }
-    /* Chaque ligne treble+bass = bloc inséparable */
-    .score-row {
-      display: block;
-      width: 100%;
-      break-inside: avoid;
-      page-break-inside: avoid;
-      margin-bottom: 0;
-    }
-    /* Toutes les lignes à 100% — le viewBox gère le ratio */
-    .score-row svg { display: block; width: 100% !important; height: auto !important; }
-    @media print {
-      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    }
-  </style>
-</head>
-<body>
-  <h1>🎹 Partition Piano — AudioScore</h1>
-  <p class="meta">${meta}</p>
-  <div class="score-wrap">${rowSvgsHtml}</div>
-  <script>window.onload = function(){ setTimeout(function(){ window.print(); window.close(); }, 600); };<\/script>
-</body>
-</html>`);
+<html lang="fr"><head><meta charset="UTF-8"/><title>AudioScore — Partition Piano</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+@page{size:A4 portrait;margin:12mm 12mm}
+body{background:#fff;font-family:Georgia,serif;color:#111;padding:4mm 6mm}
+h1{font-size:14pt;text-align:center;margin-bottom:2mm;letter-spacing:.04em}
+.meta{text-align:center;font-size:8pt;color:#555;margin-bottom:3mm}
+.score-wrap{width:100%}
+.score-row{display:block;width:100%;break-inside:avoid;page-break-inside:avoid;margin-bottom:0}
+.score-row svg{display:block;width:100%!important;height:auto!important}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body>
+<h1>🎹 Partition Piano — AudioScore</h1>
+<p class="meta">${meta}</p>
+<div class="score-wrap">${rowSvgsHtml}</div>
+<script>window.onload=function(){setTimeout(function(){window.print();window.close()},600)};<\/script>
+</body></html>`);
   printWindow.document.close();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Export MusicXML
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function exportXml() {
+  const scoreData = editor.getScoreData();
+  if (!scoreData) { showToast('⚠️ Aucune partition à exporter.', 'error'); return; }
+
+  showToast('🎼 Génération du MusicXML en cours…', 'info');
+
+  try {
+    const response = await fetch('/api/export-musicxml', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scoreData),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Erreur HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'partition_piano.musicxml';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('✅ Fichier MusicXML téléchargé !', 'success');
+  } catch (err) {
+    showToast(`❌ Erreur export MusicXML : ${err.message}`, 'error', 6000);
+    console.error('[MusicXML Export]', err);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1349,90 +1017,34 @@ function initKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
     const section = getVisibleSection();
     if (section !== 'score') return;
-
-    /* Éviter les conflits avec les champs de saisie */
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
 
     switch (true) {
-      case e.key === 'ArrowUp':
-        e.preventDefault();
-        editor.transposeSelected(1);
-        break;
-      case e.key === 'ArrowDown':
-        e.preventDefault();
-        editor.transposeSelected(-1);
-        break;
-      case e.ctrlKey && e.key === 'ArrowRight':
-        e.preventDefault();
-        editor.shiftNoteTime(+1);
-        break;
-      case e.ctrlKey && e.key === 'ArrowLeft':
-        e.preventDefault();
-        editor.shiftNoteTime(-1);
-        break;
-      case e.key === 'ArrowRight' && !e.ctrlKey:
-        e.preventDefault();
-        editor.selectNextNote();
-        break;
-      case e.key === 'ArrowLeft' && !e.ctrlKey:
-        e.preventDefault();
-        editor.selectPrevNote();
-        break;
-      case e.key === ' ':
-        e.preventDefault();
-        if (player) {
-          const scoreData = editor.getScoreData();
-          if (scoreData) player.togglePlayPause(scoreData);
-        }
-        break;
-      case e.key === 'Delete' || e.key === 'Backspace':
-        e.preventDefault();
-        editor.deleteSelected();
-        break;
-      case (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey:
-        e.preventDefault();
-        editor.undo();
-        break;
-      case (e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)):
-        e.preventDefault();
-        editor.redo();
-        break;
-      case (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C'):
-        e.preventDefault();
-        editor.copySelected();
-        break;
-      case (e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V'):
-        e.preventDefault();
-        editor.pasteAfterSelected();
-        break;
-      case e.key === 'w' || e.key === 'W':
-        editor.setDurationSelected('w');
-        break;
-      case e.key === 'h' || e.key === 'H':
-        editor.setDurationSelected('h');
-        break;
-      case e.key === 'q' || e.key === 'Q':
-        editor.setDurationSelected('q');
-        break;
-      case e.key === '8':
-        editor.setDurationSelected('8');
-        break;
-      case e.key === '6':
-        editor.setDurationSelected('16');
-        break;
-      case e.key === '.':
-        editor.toggleDotSelected();
-        break;
-      case e.key === 'Escape':
-        editor.clearSelection();
-        if (player && player.isPlaying) player.stop();
-        break;
+      case e.key === 'ArrowUp': e.preventDefault(); editor.transposeSelected(1); break;
+      case e.key === 'ArrowDown': e.preventDefault(); editor.transposeSelected(-1); break;
+      case e.ctrlKey && e.key === 'ArrowRight': e.preventDefault(); editor.shiftNoteTime(+1); break;
+      case e.ctrlKey && e.key === 'ArrowLeft': e.preventDefault(); editor.shiftNoteTime(-1); break;
+      case e.key === 'ArrowRight' && !e.ctrlKey: e.preventDefault(); editor.selectNextNote(); break;
+      case e.key === 'ArrowLeft' && !e.ctrlKey: e.preventDefault(); editor.selectPrevNote(); break;
+      case e.key === ' ': e.preventDefault(); if (player) { const sd = editor.getScoreData(); if (sd) player.togglePlayPause(sd); } break;
+      case e.key === 'Delete' || e.key === 'Backspace': e.preventDefault(); editor.deleteSelected(); break;
+      case (e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey: e.preventDefault(); editor.undo(); break;
+      case (e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey)): e.preventDefault(); editor.redo(); break;
+      case (e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C'): e.preventDefault(); editor.copySelected(); break;
+      case (e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V'): e.preventDefault(); editor.pasteAfterSelected(); break;
+      case e.key === 'w' || e.key === 'W': editor.setDurationSelected('w'); break;
+      case e.key === 'h' || e.key === 'H': editor.setDurationSelected('h'); break;
+      case e.key === 'q' || e.key === 'Q': editor.setDurationSelected('q'); break;
+      case e.key === '8': editor.setDurationSelected('8'); break;
+      case e.key === '6': editor.setDurationSelected('16'); break;
+      case e.key === '.': editor.toggleDotSelected(); break;
+      case e.key === 'Escape': editor.clearSelection(); if (player && player.isPlaying) player.stop(); break;
     }
   });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Gestion des sections (visibilité)
+   Gestion des sections
    ═══════════════════════════════════════════════════════════════════════════ */
 function showSection(name) {
   document.getElementById('upload-section')?.classList.toggle('hidden', name !== 'upload');
@@ -1461,55 +1073,7 @@ function formatTime(seconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   Toasts (notifications)
-   ═══════════════════════════════════════════════════════════════════════════ */
-/* ═══════════════════════════════════════════════════════════════════════════
-   Export MusicXML
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function exportXml() {
-  const scoreData = editor.getScoreData();
-  if (!scoreData) {
-    showToast('⚠️ Aucune partition à exporter.', 'error');
-    return;
-  }
-
-  showToast('🎼 Génération du MusicXML en cours…', 'info');
-
-  try {
-    const response = await fetch('/api/export-musicxml', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(scoreData),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Erreur HTTP ${response.status}`);
-    }
-
-    /* Déclencher le téléchargement */
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'partition_piano.musicxml';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    showToast('✅ Fichier MusicXML téléchargé ! (ouvre dans MuseScore, Finale, etc.)', 'success');
-
-  } catch (err) {
-    showToast(`❌ Erreur export MusicXML : ${err.message}`, 'error', 6000);
-    console.error('[MusicXML Export]', err);
-  }
-}
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Toasts (notifications)
@@ -1523,17 +1087,12 @@ function showToast(message, type = 'info', duration = 4000) {
   toast.textContent = message;
   container.appendChild(toast);
 
-  // Animation d'entrée
   requestAnimationFrame(() => toast.classList.add('show'));
 
-  // Auto-suppression : On gère directement via setTimeout (sans transitionend)
-  // car l'animation CSS ne définissait pas de transition de sortie.
   setTimeout(() => {
     toast.style.opacity = '0';
     toast.style.transform = 'translateY(10px) scale(0.95)';
     toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-    
-    // Le retrait du DOM après l'animation de sortie
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }

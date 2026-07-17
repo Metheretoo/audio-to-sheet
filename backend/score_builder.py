@@ -20,6 +20,13 @@ from quantizer import QuantizedNote, beats_to_duration, duration_beats
 from voice_engine import VoiceSplit
 from tempo_map import TempoMap
 
+# [P4] Import du détecteur d'ornements
+try:
+    from ornament_detector import OrnamentDetector, OrnamentResult
+    _has_ornament_detector = True
+except ImportError:
+    _has_ornament_detector = False
+
 # Format d'armure valide pour VexFlow : lettre A-G, altération simple/double
 # optionnelle (# ou b), suffixe 'm' optionnel pour le mode mineur.
 _VALID_VEXFLOW_KEY_RE = re.compile(r'^[A-G](#{1,2}|b{1,2})?m?$')
@@ -48,6 +55,9 @@ def build_score(
     options: dict = None,
     harmonic_ctx=None,        # [V4] HarmonicContext depuis harmonic_analyzer
     pedals: list = None,      # [V4] liste de (onset_sec, offset_sec)
+    use_downbeats: bool = True,  # [P3.5] Activer l'utilisation de downbeat_times
+    ornament_result: 'OrnamentResult' = None,  # [P4] Résultat de détection d'ornements
+    uncertain_note_ids: list = None,  # [P6] IDs des notes incertaines (fallback single-model)
 ) -> Dict[str, Any]:
     """
     Construit le ScoreData JSON complet depuis un VoiceSplit.
@@ -128,6 +138,13 @@ def build_score(
     beats_per_measure = ts_num * (4.0 / ts_den)
     global_bpm = int(round(options.get('display_bpm', tempo_map.global_bpm)))
 
+    # [P3.5] Extraire downbeat_times pour intégration dans le JSON
+    downbeat_times_beats = None
+    if use_downbeats and hasattr(tempo_map, 'downbeat_times') and len(tempo_map.downbeat_times) > 0:
+        # Convertir downbeat timestamps (secondes) → positions de beat
+        downbeat_times_beats = [tempo_map.seconds_to_beat(t) for t in tempo_map.downbeat_times]
+        print(f"[ScoreBuilder] {len(downbeat_times_beats)} downbeats détectés (P3.5)")
+
     # 3. Nombre de mesures nécessaires
     all_notes = voices.treble + voices.bass
     if not all_notes:
@@ -181,12 +198,33 @@ def build_score(
             ),
         })
 
+    # [P3.5] Construire les mesures avec information downbeat
+    # Convertir downbeat_times_beats en indices de mesure pour le JSON
+    downbeat_measure_indices = set()
+    if downbeat_times_beats is not None:
+        for db_beat in downbeat_times_beats:
+            m_idx = int(db_beat / beats_per_measure)
+            if 0 <= m_idx < num_measures:
+                downbeat_measure_indices.add(m_idx)
+
+    # Marquer chaque mesure comme downbeat ou non
+    measures_with_downbeat = []
+    for m_idx in range(num_measures):
+        measure_data = measures[m_idx]
+        measure_data['isDownbeat'] = m_idx in downbeat_measure_indices
+        measure_data['measureNumber'] = m_idx + 1  # 1-indexed pour le frontend
+        measures_with_downbeat.append(measure_data)
+
     result = {
         'tempo':         global_bpm,
         'timeSignature': [ts_num, ts_den],
         'keySignature':  key_sig,
         'totalMeasures': num_measures,
-        'measures':      measures,
+        'measures':      measures_with_downbeat,
+        # [P3.5] Métadonnées TempoMap pour le frontend
+        'tempoMapMethod':  getattr(tempo_map, 'method', 'unknown'),
+        'detectedMeter':   list(getattr(tempo_map, 'estimated_meter', (ts_num, ts_den))),
+        'tempoRange':      list(tempo_map.tempo_range()) if hasattr(tempo_map, 'tempo_range') else [],
     }
     
     # Ajouter les dynamiques si détectées
@@ -225,6 +263,15 @@ def build_score(
     # [V4] Pédale forte
     if pedals:
         result['pedalMarkings'] = _build_pedal_markers(pedals, tempo_map, all_notes)
+    
+    # [P4] Intégration des ornements dans le JSON
+    if ornament_result is not None:
+        result['ornaments'] = _build_ornaments_json(ornament_result, beats_per_measure)
+    
+    # [P6] Intégration des notes incertaines (fallback single-model)
+    if uncertain_note_ids is not None and len(uncertain_note_ids) > 0:
+        result['uncertainNotes'] = uncertain_note_ids
+        print(f"[ScoreBuilder] {len(uncertain_note_ids)} notes marquées comme 'incertaines' (P6)")
     
     return result
 
@@ -694,6 +741,73 @@ def _build_chord_symbols(chord_map: dict, beats_per_measure: float) -> list:
             'romanNumeral':  ca.roman_numeral,
         })
     return symbols
+
+
+# ── [P4] Helpers pour les ornements dans le JSON ───────────────────────────
+
+def _build_ornaments_json(
+    ornament_result: 'OrnamentResult', 
+    beats_per_measure: float
+) -> Dict[str, Any]:
+    """
+    Construit la section 'ornaments' du JSON de score (Phase 4).
+    
+    Retourne un dict avec :
+      - appoggiaturas: liste de grace notes avec pitch, target, measure
+      - trills: liste de symboles tr avec startBeat, endBeat, measure
+      - dottedRhythms: liste de rythmes pointés détectés
+      - summary: compteurs par type
+    """
+    appoggiaturas = []
+    for app in ornament_result.appoggiaturas:
+        measure_num = int(app.beat_position / beats_per_measure) + 1 if beats_per_measure > 0 else 1
+        appoggiaturas.append({
+            'type': 'graceNote',
+            'pitch': app.grace_note_pitch,
+            'targetPitch': app.target_pitch,
+            'beatPosition': round(app.beat_position, 3),
+            'duration': round(app.duration_beats, 3),
+            'measure': measure_num,
+            'musicxml': '<grace slash="true"><note><pitch><step>C</step><alter>0</alter></pitch><duration>0</duration></note></grace>',
+        })
+    
+    trills = []
+    for tr in ornament_result.trills:
+        measure_num = int(tr.start_beat / beats_per_measure) + 1 if beats_per_measure > 0 else 1
+        trills.append({
+            'type': 'trill',
+            'startBeat': round(tr.start_beat, 3),
+            'endBeat': round(tr.end_beat, 3),
+            'primaryPitch': tr.primary_pitch,
+            'auxiliaryPitch': tr.auxiliary_pitch,
+            'noteCount': tr.note_count,
+            'measure': measure_num,
+            'musicxml': f'<ornaments><trill-mark>{tr.start_beat:.2f}-{tr.end_beat:.2f}</trill-mark></ornaments>',
+        })
+    
+    dotted_rhythms = []
+    for dr in ornament_result.dotted_rhythms:
+        measure_num = int(dr.beat_position / beats_per_measure) + 1 if beats_per_measure > 0 else 1
+        dotted_rhythms.append({
+            'type': 'dottedRhythm',
+            'noteIndex': dr.note_index,
+            'beatPosition': round(dr.beat_position, 3),
+            'duration': round(dr.duration_beats, 3),
+            'dottedRatio': dr.dotted_ratio,
+            'measure': measure_num,
+        })
+    
+    return {
+        'appoggiaturas': appoggiaturas,
+        'trills': trills,
+        'dottedRhythms': dotted_rhythms,
+        'summary': {
+            'appoggiaturaCount': len(appoggiaturas),
+            'trillCount': len(trills),
+            'dottedRhythmCount': len(dotted_rhythms),
+            'totalOrnamentedNotes': len(ornament_result.note_ornaments),
+        }
+    }
 
 
 def _build_pedal_markers(pedals: list, tempo_map, all_notes: list = None) -> list:

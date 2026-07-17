@@ -41,6 +41,22 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
 
+/* ── P6 : Notes incertaines (fallback single-model) ───────────────────────── */
+.vf-notehead.uncertain,
+.vf-rest.uncertain {
+  stroke-dasharray: 3, 2;
+  stroke-width: 2.5;
+}
+
+svg .uncertain-highlight {
+  animation: uncertain-pulse 2s ease-in-out infinite;
+}
+
+@keyframes uncertain-pulse {
+  0%, 100% { stroke-opacity: 0.6; }
+  50%      { stroke-opacity: 1.0; }
+}
+
 body {
   font-family: var(--font);
   background: var(--bg);

@@ -1,5 +1,6 @@
 """audio-to-sheet music v3 — API Flask"""
 import os
+import sys
 import uuid
 import tempfile
 import json
@@ -7,6 +8,9 @@ import logging
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from transcriber import TranscriptionPipeline
+
+# ── P1.5 : Vérification des prérequis au démarrage ─────────────────────────────
+from verify_prerequisites import verify_prerequisites
 
 # Configuration du chemin du frontend
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +27,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 logger.info(f"Serveur démarré — logs dans : {LOG_PATH}")
+
+# ── P1.4 : Vérification disponibilité de tonality_detector ─────────────────────
+_tonality_detector_status = {
+    'available': False,
+    'error': None,
+}
+try:
+    from tonality_detector import detect_tonality as _detect_tonality
+    _tonality_detector_status['available'] = True
+    logger.info("[P1.4] tonality_detector disponible")
+except ImportError as e:
+    _tonality_detector_status['error'] = str(e)
+    logger.warning(f"[P1.4] tonality_detector indisponible : {e}")
+except Exception as e:
+    _tonality_detector_status['error'] = str(e)
+    logger.warning(f"[P1.4] tonality_detector erreur : {e}")
 FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path='/static')
@@ -88,9 +108,56 @@ def device_info():
         'name': name
     }), 200
 
-# ---------------------------------------------------------------------------
-# Compatibilité avec le frontend actuel (fetch('/api/device'))
-# ---------------------------------------------------------------------------
+# ── Stockage temporaire des jobs de transcription (thread-safe) ─────────────
+import concurrent.futures
+import time as _time
+
+_transcription_jobs = {}  # job_id -> {'status': str, 'result': dict, 'error': str, 'progress': float, 'message': str, 'created_at': float}
+_jobs_lock = __import__('threading').Lock()
+
+
+def _cleanup_old_jobs():
+    """Nettoyer les jobs anciens de 5 minutes."""
+    now = _time.time()
+    with _jobs_lock:
+        to_remove = [jid for jid, job in _transcription_jobs.items()
+                     if now - job['created_at'] > 300]
+        for jid in to_remove:
+            del _transcription_jobs[jid]
+
+
+def _run_pipeline_thread(job_id, input_path, output_dir, options):
+    """Thread qui exécute le pipeline de transcription."""
+    with _jobs_lock:
+        if job_id in _transcription_jobs:
+            _transcription_jobs[job_id]['status'] = 'running'
+            _transcription_jobs[job_id]['message'] = 'Transcription en cours...'
+            _transcription_jobs[job_id]['progress'] = 0.1
+
+    try:
+        result = pipeline.run(input_path, output_dir, options=options)
+        output_files = {}
+        if result.get('midi_path'):
+            output_files['midi'] = result['midi_path']
+        if result.get('xml_path'):
+            output_files['xml'] = result['xml_path']
+
+        with _jobs_lock:
+            _transcription_jobs[job_id]['status'] = 'done'
+            _transcription_jobs[job_id]['result'] = {
+                'success': True,
+                'score_data': result,
+                'output_files': output_files,
+                'processing_time': 0.0,
+            }
+            _transcription_jobs[job_id]['progress'] = 1.0
+            _transcription_jobs[job_id]['message'] = 'Transcription terminée avec succès!'
+    except Exception as e:
+        logger.exception(f"[Transcribe] Pipeline error for job {job_id}")
+        with _jobs_lock:
+            _transcription_jobs[job_id]['status'] = 'error'
+            _transcription_jobs[job_id]['error'] = str(e)
+            _transcription_jobs[job_id]['message'] = f'Transcription échouée: {e}'
 @app.route('/api/device', methods=['GET'])
 def device_compat():
     """Alias compatible avec le frontend qui attend `/api/device`.
@@ -212,6 +279,17 @@ def transcribe():
     upload_dir = get_temp_dir(f'audio_{job_id}')
     output_dir = get_temp_dir(f'output_{job_id}')
 
+    # Initialiser le job dans le stockage
+    with _jobs_lock:
+        _transcription_jobs[job_id] = {
+            'status': 'pending',
+            'result': None,
+            'error': None,
+            'progress': 0.0,
+            'message': 'En attente...',
+            'created_at': _time.time(),
+        }
+
     try:
         # Sauvegarder le fichier uploadé
         input_path = os.path.join(upload_dir, file.filename)
@@ -219,22 +297,16 @@ def transcribe():
 
         # Extraire les options de la requête HTTP
         onset_threshold_val = float(request.form.get('onset_threshold', 0.5))
-        # BUG CORRIGÉ (v4.2) : frame_threshold restait figé à 0.25 quel que soit
-        # le slider "Sensibilité" (qui ne pilote en réalité que onset_threshold).
-        # Résultat : à mesure que l'utilisateur déplaçait le curseur, onset et
-        # frame_threshold se déséquilibraient de plus en plus, ce qui fragmente/
-        # duplique les notes (une des causes probables de la "soupe de notes").
-        # On dérive désormais frame_threshold proportionnellement à
-        # onset_threshold (ratio ~1/3, cohérent avec les valeurs par défaut
-        # documentées de la librairie : onset=0.3 / frame=0.1).
-        default_frame_threshold = round(min(max(onset_threshold_val / 3.0, 0.05), 0.5), 3)
+        frame_threshold_val = float(request.form.get('frame_threshold', '0.1'))
+        offset_threshold_val = float(request.form.get('offset_threshold', '0.3'))
 
         options = {
             'transcriber': request.form.get('transcriber', 'piano_transcription'),
             'preset': request.form.get('preset', 'standard'),
             'use_demucs': request.form.get('use_demucs', 'false') == 'true',
             'onset_threshold': onset_threshold_val,
-            'frame_threshold': float(request.form.get('frame_threshold', default_frame_threshold)),
+            'frame_threshold': frame_threshold_val,
+            'offset_threshold': offset_threshold_val,
             'minimum_note_duration': int(request.form.get('minimum_note_duration', 50)),
             'time_sig': request.form.get('time_sig', '4/4'),
             'key_sig': request.form.get('key_sig', 'C'),
@@ -248,38 +320,169 @@ def transcribe():
             'split_hands': request.form.get('split_hands', 'false') == 'true',
             'enable_rubato': request.form.get('enable_rubato', 'false') == 'true',
             'enable_triplets': request.form.get('enable_triplets', 'false') == 'true',
+            'strict_mode': request.form.get('strict_mode', 'false') == 'true',
         }
         tempo_override = request.form.get('tempo')
         if tempo_override:
             options['tempo'] = float(tempo_override)
-            
-        # Exécuter le pipeline de transcription avec les options
-        result = pipeline.run(input_path, output_dir, options=options)
 
-        # Le frontend (app.js handleTranscriptionResult) attend le format :
-        # { success: true, score_data: { measures: [...], tempo: ..., ... } }
-        # On enveloppe donc le score_data dans la clé "score_data".
-        result['jobId'] = job_id  # jobId conservé dans score_data pour currentJobId
+        # Mettre à jour le statut du job
+        with _jobs_lock:
+            _transcription_jobs[job_id]['status'] = 'running'
+            _transcription_jobs[job_id]['message'] = 'Transcription en cours...'
+            _transcription_jobs[job_id]['progress'] = 0.1
 
-        output_files = {}
-        if result.get('midi_path'):
-            output_files['midi'] = result['midi_path']
-        if result.get('xml_path'):
-            output_files['xml'] = result['xml_path']
+        # Lancer le pipeline dans un thread séparé
+        import threading
+        thread = threading.Thread(
+            target=_run_pipeline_thread,
+            args=(job_id, input_path, output_dir, options),
+            daemon=True,
+        )
+        thread.start()
 
+        # Retourner immédiatement un jobId au frontend
         return jsonify({
             'success': True,
-            'score_data': result,
-            'output_files': output_files,
-            'processing_time': 0.0,
+            'jobId': job_id,
+            'status': 'running',
+            'message': 'Transcription démarrée',
         }), 200
 
     except FileNotFoundError as e:
         logger.error(f"Fichier introuvable : {e}")
+        with _jobs_lock:
+            _transcription_jobs[job_id]['status'] = 'error'
+            _transcription_jobs[job_id]['error'] = str(e)
         return jsonify({'error': f'File not found: {str(e)}'}), 404
     except Exception as e:
         logger.exception("[API ERROR] Traceback complet :")
+        with _jobs_lock:
+            _transcription_jobs[job_id]['status'] = 'error'
+            _transcription_jobs[job_id]['error'] = str(e)
         return jsonify({'error': f'Transcription failed: {str(e)}'}), 500
+
+
+@app.route('/api/transcribe-progress/<job_id>', methods=['GET'])
+def transcribe_progress(job_id):
+    """Endpoint SSE pour la progression de transcription.
+    
+    Retourne un stream SSE avec les événements de progression.
+    Le frontend se connecte via EventSource à cette URL.
+    """
+    # Nettoyer les vieux jobs
+    _cleanup_old_jobs()
+    
+    if job_id not in _transcription_jobs:
+        return jsonify({'error': 'Job not found'}), 404
+
+    def _event_stream():
+        """Génère les événements SSE."""
+        import json
+        import time
+        import sys
+        
+        last_heartbeat = time.time()
+        while True:
+            job = _transcription_jobs.get(job_id)
+            if job is None:
+                # Job supprimé (expiration)
+                yield "event: done\ndata: " + json.dumps({"message": "Job expiré"}) + "\n\n"
+                sys.stdout.flush()
+                break
+            
+            status = job['status']
+            progress = job.get('progress', 0)
+            message = job.get('message', '')
+            
+            # Déterminer le step à partir du status
+            step_map = {
+                'pending': 'init',
+                'running': 'transcription',
+                'done': 'export',
+                'error': 'error',
+            }
+            step = step_map.get(status, 'unknown')
+            
+            status_event = {
+                "type": "status",
+                "step": step,
+                "message": message,
+                "progress": progress,
+                "status": status,
+            }
+            yield "event: status\ndata: " + json.dumps(status_event) + "\n\n"
+            sys.stdout.flush()
+            
+            if status == 'done':
+                yield "event: done\ndata: " + json.dumps({"message": "Transcription terminée"}) + "\n\n"
+                sys.stdout.flush()
+                break
+            elif status == 'error':
+                error_event = {"message": job.get('error', 'Erreur inconnue')}
+                yield "event: error\ndata: " + json.dumps(error_event) + "\n\n"
+                sys.stdout.flush()
+                break
+            
+            # Heartbeat toutes les 15 secondes
+            if time.time() - last_heartbeat > 15:
+                yield "\n"
+                sys.stdout.flush()
+                last_heartbeat = time.time()
+    
+    from flask import Response
+    return Response(
+        _event_stream(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        }
+    )
+
+
+@app.route('/api/transcribe/result/<job_id>', methods=['GET'])
+def transcribe_result(job_id):
+    """Récupère le résultat final d'une transcription."""
+    try:
+        _cleanup_old_jobs()
+        
+        with _jobs_lock:
+            job = _transcription_jobs.get(job_id)
+        
+        if job is None:
+            return jsonify({'error': 'Job not found or expired'}), 404
+        
+        if job['status'] == 'done':
+            # Le résultat peut contenir des objets numpy non-sérialisables
+            # jsonify() peut échouer avec des types non-JSON
+            result = job['result']
+            if result.get('success'):
+                score_data = result.get('score_data', {})
+                # Vérifier que score_data est sérialisable
+                try:
+                    json.dumps(score_data)
+                except (TypeError, ValueError):
+                    logger.warning("[Result] score_data non sérialisable JSON, conversion...")
+                    # Si non sérialisable, on retourne un message d'erreur structuré
+                    return jsonify({
+                        'success': False,
+                        'error': 'Le résultat contient des données non-sérialisables. Vérifiez les logs du serveur.',
+                        'job_status': 'serialization_error'
+                    }), 500
+                return jsonify(result), 200
+            else:
+                return jsonify(result), 500
+        elif job['status'] == 'error':
+            error_msg = job.get('error', 'Erreur inconnue')
+            logger.error(f"[Result] Job {job_id} en erreur: {error_msg}")
+            return jsonify({'error': error_msg, 'job_status': 'error'}), 500
+        else:
+            return jsonify({'status': job['status']}), 202
+    except Exception as e:
+        logger.exception(f"[Result] Exception pour job {job_id}: {e}")
+        return jsonify({'error': f'Erreur serveur: {str(e)}', 'job_status': 'exception'}), 500
 
 
 @app.route('/api/cleanup', methods=['POST'])
@@ -379,8 +582,15 @@ def get_score(job_id):
     return jsonify({'error': 'Score file not found'}), 404
 
 
+# ── P1.5 : Exécution de la vérification des prérequis au démarrage ─────────────
+_prereq_results, _has_critical = verify_prerequisites()
+if _has_critical:
+    logger.warning("[P1.5] ⚠️ Des prérequis critiques ne sont pas satisfaits — l'application peut fonctionner de manière dégradée")
+else:
+    logger.info("[P1.5] ✅ Prérequis validés — démarrage de l'application")
+
 if __name__ == '__main__':
-    print("🎵 Audio-to-Sheet Music v3.0.0")
+    print("\n🎵 Audio-to-Sheet Music v3.0.0")
     print("📡 Server: http://localhost:5000")
     print("📖 API Docs:")
     print("   GET    /              - Interface web")

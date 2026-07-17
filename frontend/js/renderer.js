@@ -183,7 +183,17 @@ class ScoreRenderer {
           leftBar.setContext(ctx).draw();
         }
 
-        /* ── Rendu conjoint des voix Treble et Bass pour alignement rythmique parfait ── */
+         /* ── Rendu conjoint des voix Treble et Bass pour alignement rythmique parfait ── */
+        /* ── P6 : Collecter les IDs de notes incertaines depuis scoreData ── */
+        const uncertainIds = new Set(
+          (scoreData.uncertainNotes && Array.isArray(scoreData.uncertainNotes))
+            ? scoreData.uncertainNotes
+            : []
+        );
+        if (uncertainIds.size > 0) {
+          console.log(`[Renderer] P6 : ${uncertainIds.size} note(s) incertaine(s) détectée(s)`);
+        }
+
         try {
           this._renderJointVoices(
             ctx,
@@ -192,7 +202,8 @@ class ScoreRenderer {
             measure.treble || [],
             measure.bass || [],
             measureIndex,
-            scoreData
+            scoreData,
+            uncertainIds  // P6 : propager les IDs incertains
           );
         } catch (e) {
           console.warn('[Renderer] Erreur rendu conjoint mesure', measureIndex, e);
@@ -226,7 +237,10 @@ class ScoreRenderer {
   }
 
   /* ── Rendu conjoint des voix Treble et Bass pour alignement rythmique parfait ── */
-  _renderJointVoices(ctx, trebleStave, bassStave, trebleNotesData, bassNotesData, measureIndex, scoreData) {
+  _renderJointVoices(ctx, trebleStave, bassStave, trebleNotesData, bassNotesData, measureIndex, scoreData, uncertainIds) {
+    // P6 : uncertainIds est un Set d'IDs de notes incertaines (fallback single-model)
+    // Si non fourni ou vide, aucun traitement spécial
+    const hasUncertain = uncertainIds && uncertainIds.size > 0;
     const VF = Vex.Flow;
     const [num, den] = scoreData.timeSignature;
 
@@ -523,6 +537,40 @@ class ScoreRenderer {
           if (el) {
             el.setAttribute('id', 'vf-' + nd.id);
             el.setAttribute('class', nd.isRest ? 'vf-rest' : 'vf-notehead');
+
+            // P6 : Marquer les notes incertaines avec une bordure pointillée orange
+            if (hasUncertain && uncertainIds.has(nd.id)) {
+              el.setAttribute('class', el.getAttribute('class') + ' uncertain');
+              el.setAttribute('data-uncertain', 'true');
+
+              // Ajouter un highlight SVG autour de la note
+              if (bb && bb.width > 0 && bb.height > 0) {
+                const highlight = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                highlight.setAttribute('class', 'uncertain-highlight');
+                highlight.setAttribute('x', bb.x - 4);
+                highlight.setAttribute('y', bb.y - 4);
+                highlight.setAttribute('width', bb.width + 8);
+                highlight.setAttribute('height', bb.height + 8);
+                highlight.setAttribute('rx', '4');
+                highlight.setAttribute('fill', 'none');
+                highlight.setAttribute('stroke', '#f59e0b');
+                highlight.setAttribute('stroke-width', '1.5');
+                highlight.setAttribute('stroke-dasharray', '3,2');
+                highlight.setAttribute('stroke-opacity', '0.8');
+                highlight.setAttribute('pointer-events', 'none');
+                highlight.setAttribute('data-parent-id', nd.id);
+
+                // Insérer avant le notehead pour qu'il soit en dessous
+                if (el.parentNode) {
+                  el.parentNode.insertBefore(highlight, el);
+                }
+              }
+
+              info.isUncertain = true;
+            } else {
+              info.isUncertain = false;
+            }
+
             if (!nd.isRest) {
               const heads = el.querySelectorAll('.vf-notehead');
               info.numHeads = heads.length || (nd.keys ? nd.keys.length : 1);

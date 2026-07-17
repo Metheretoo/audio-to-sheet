@@ -3,6 +3,12 @@ flask>=3.0
 flask-cors>=4.0
 waitress>=3.0
 
+# ── FastAPI (Phase 1.7 - migration progressive) ──────────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.30
+pydantic>=2.0
+starlette>=0.37
+
 # ── HTTP / utils ──────────────────────────────────────────────────────────────
 requests>=2.31
 
@@ -44,3 +50,10 @@ demucs>=4.0
 # 2. pip install "numpy>=1.23,<1.27"
 # 3. pip install madmom
 # 4. ffmpeg requis pour lecture MP3 (conda install -c conda-forge ffmpeg)
+
+# ── Config / YAML (Phase 3 - config.py) ──────────────────────────────────
+pydantic-settings>=2.0
+pyyaml>=6.0
+
+# ── MusicXML export (music21 - optionnel, échec silencieux si manquant) ──
+# music21>=7.0

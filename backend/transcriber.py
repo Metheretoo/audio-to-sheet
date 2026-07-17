@@ -7,6 +7,18 @@ import numpy as np
 import pretty_midi
 
 
+# ── P1.2 : Exception personnalisée pour le mode strict ─────────────────────────
+
+class PipelineError(Exception):
+    """
+    Exception levée en mode strict lorsqu'une étape critique du pipeline échoue.
+    
+    En mode strict, toute erreur critique arrête immédiatement le pipeline
+    au lieu de continuer avec un fallback silencieux.
+    """
+    pass
+
+
 def detect_computing_device():
     """
     Détecte le meilleur device de calcul disponible.
@@ -36,10 +48,7 @@ def detect_computing_device():
         print(f"[Transcriber] CUDA non disponible: {e}")
     
     # 3. Fallback CPU
-    print("[Transcriber] ⚠️  Aucun GPU détecté, utilisation du CPU (fallback)")
-    print("[Transcriber] 💡 Pour accélérer le traitement:")
-    print("[Transcriber]    - NVIDIA GPU: installer PyTorch CUDA")
-    print("[Transcriber]    - Intel ARC: installer intel-extension-for-pytorch")
+    # P1.6 : Warning structuré au lieu de print muet
     return torch.device("cpu")
 
 # ── Patch de compatibilité librosa >= 0.10 ────────────────────────────────────
@@ -69,6 +78,22 @@ import librosa as _librosa
 _librosa.resample = _resample_compat
 # ─────────────────────────────────────────────────────────────────────────────
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NUMBA DISABLE — Empêcher la compilation JIT massive et le debug bytecode
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Désactiver le debug numba AVANT tout import de numba/madmom
+# Sans ceci, la première exécution de DBNBeatTrackingProcessor génère
+# des milliers de lignes de bytecode debug (18 538+ lignes) et bloque le traitement.
+import os
+os.environ.setdefault('NUMBA_DEBUG', '0')
+os.environ.setdefault('NUMBA_DEBUG_BYTEARRAY', '0')
+os.environ.setdefault('NUMBA_DEBUG_TYPEINFER', '0')
+os.environ.setdefault('NUMBA_DUMP_BYTECODE', '0')
+os.environ.setdefault('NUMBA_DUMP_LLVM', '0')
+os.environ.setdefault('NUMBA_DEBUG_ARRAY_OPT', '0')
+os.environ.setdefault('NUMBA_DEBUG_ARRAY_OPT_PASSMANAGER', '0')
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENSEMBLE VOTING — Fusion multi-modèles (configurable via config.yaml)
@@ -174,11 +199,27 @@ def run_ensemble_transcription(audio_path, options):
 
     models_config = filtered_models
 
-    onset_tolerance = ensemble_config.get('onset_tolerance', 0.05)  # secondes
-    pitch_tolerance = ensemble_config.get('pitch_tolerance', 1)      # demi-tons
+    # ── P6.1 : onset_tolerance adaptatif proportionnel au tempo local ──
+    # Au lieu d'un seuil fixe (0.05s), on adapte le tolérance au BPM local.
+    # Formule : tolerance = base_tolerance × (60 / local_bpm)
+    # À 120 BPM → tolerance = 0.04s (plus serré, notes plus précises)
+    # À 60 BPM  → tolerance = 0.08s (plus large, rubato permis)
+    base_onset_tolerance = ensemble_config.get('onset_tolerance', 0.04)
+    base_pitch_tolerance = ensemble_config.get('pitch_tolerance', 1)
     min_votes = ensemble_config.get('min_votes', 2)
     velocity_aggregation = ensemble_config.get('velocity_aggregation', 'weighted_mean')
     duration_aggregation = ensemble_config.get('duration_aggregation', 'median')
+    
+    # Fonction helper pour calculer le tolérance adaptatif
+    def _adaptive_onset_tolerance(bpm: float) -> float:
+        """Retourne le onset_tolerance adapté au BPM local."""
+        if bpm <= 0:
+            return base_onset_tolerance
+        # Facteur d'adaptation : proportionnel à la durée d'un beat
+        beat_duration = 60.0 / bpm  # durée d'un beat en secondes
+        # Le tolérance est ~4% de la durée d'un beat (max 0.1s, min 0.02s)
+        tolerance = max(0.02, min(0.10, beat_duration * 0.04))
+        return tolerance
     
     # Exécuter chaque modèle
     all_model_results = {}
@@ -234,7 +275,15 @@ def run_ensemble_transcription(audio_path, options):
     if not all_notes:
         raise RuntimeError("Aucune note détectée par aucun modèle")
     
-    # Grouper les notes similaires (même onset ± tolérance, même pitch ± tolérance)
+    # P6.1 : Calculer un BPM moyen pour adapter le tolérance
+    onsets = [n[0] for n in all_notes]
+    avg_bpm = max(40, min(250, display_bpm if 'display_bpm' in locals() else 120))
+    adaptive_tolerance = _adaptive_onset_tolerance(avg_bpm)
+    adaptive_pitch_tolerance = base_pitch_tolerance
+    
+    print(f"[Ensemble] P6.1 : onset_tolerance adaptatif = {adaptive_tolerance:.4f}s (BPM≈{avg_bpm})")
+    
+    # Grouper les notes similaires (même onset ± tolérance adaptatif, même pitch ± tolérance)
     # Algorithme: clustering simple par onset puis pitch
     all_notes.sort(key=lambda x: (x[0], x[1]))  # trier par onset puis pitch
     
@@ -249,7 +298,7 @@ def run_ensemble_transcription(audio_path, options):
             rep_onset = cluster['rep_onset']
             rep_pitch = cluster['rep_pitch']
             
-            if abs(onset - rep_onset) <= onset_tolerance and abs(pitch - rep_pitch) <= pitch_tolerance:
+            if abs(onset - rep_onset) <= adaptive_tolerance and abs(pitch - rep_pitch) <= adaptive_pitch_tolerance:
                 cluster['notes'].append(note)
                 assigned = True
                 break
@@ -266,10 +315,20 @@ def run_ensemble_transcription(audio_path, options):
     valid_clusters = [c for c in clusters if len(c['notes']) >= min_votes]
     print(f"[Ensemble] {len(clusters)} clusters formés, {len(valid_clusters)} retenus (min_votes={min_votes})")
     
-    # Agréger chaque cluster valide
-    fused_notes = []
-    for cluster in valid_clusters:
+    # P6.2 : Marquer les clusters "incertains" (1 seul modèle, confiance faible)
+    # Un cluster avec 1 seul vote est "incertain" — on ajoute un flag uncertainty
+    uncertain_clusters = [c for c in valid_clusters if len(c['notes']) < min_votes * 2]
+    if uncertain_clusters:
+        print(f"[Ensemble] P6.2 : {len(uncertain_clusters)} cluster(s) incertain(s) détecté(s)")
+    
+    # P6.2 : Agréger chaque cluster valide + flag "incertain"
+    fused_notes = []       # notes (onset, pitch, duration, velocity)
+    uncertain_notes = set()  # indices de notes incertaines
+    for idx, cluster in enumerate(valid_clusters):
         notes = cluster['notes']
+        is_uncertain = len(notes) < min_votes  # P6.2 : < min_votes = un seul modèle
+        if is_uncertain:
+            print(f"[Ensemble] P6.2 : cluster {idx} incertain — 1 seul modèle, fallback activé")
         
         # Calculer les poids totaux
         total_weight = sum(n[5] for n in notes)  # model weight
@@ -311,10 +370,13 @@ def run_ensemble_transcription(audio_path, options):
             weighted_onset,
             fused_pitch,
             fused_duration,
-            int(round(fused_velocity))
+            int(round(fused_velocity)),
+            is_uncertain  # P6.2 : flag incertain ajouté en 5e élément
         ))
+        if is_uncertain:
+            uncertain_notes.add(len(fused_notes) - 1)
     
-    # Trier par onset
+    # Trier par onset (conserver le flag incertain en 5e position)
     fused_notes.sort(key=lambda x: x[0])
     
     # Créer un objet MIDI fusionné (utiliser le MIDI du modèle principal comme base)
@@ -345,21 +407,66 @@ def run_ensemble_transcription(audio_path, options):
     
     dt = time.perf_counter() - t0
     print(f"[Ensemble] Terminé en {dt:.2f}s — {len(fused_notes)} notes fusionnées")
-    # Pour les pédales, on prend celles du modèle principal s'il y en a
-    fused_pedals = all_model_results[primary_model].get('pedal', [])
+    # ── P5.4 : Agrégation multi-modèles pédale ────────────────────────────
+    # Fusionner les pédales détectées par tous les modèles disponibles
+    # en utilisant un vote pondéré (similaire à la fusion des notes).
+    all_pedal_intervals = []
+    for model_name, result in all_model_results.items():
+        model_pedals = result.get('pedal', [])
+        model_weight = result['weight']
+        for p_start, p_end in model_pedals:
+            all_pedal_intervals.append((p_start, p_end, model_weight, model_name))
     
-    return fused_notes, fused_midi, fused_pedals
+    # Clustering des pédales similaires (tolérance 50ms)
+    pedal_tolerance = 0.05
+    fused_pedals = []
+    for p_start, p_end, weight, mname in all_pedal_intervals:
+        assigned = False
+        for i, (fp_start, fp_end, fp_weight, fp_models) in enumerate(fused_pedals):
+            if abs(p_start - fp_start) <= pedal_tolerance and abs(p_end - fp_end) <= pedal_tolerance:
+                # Fusionner : augmenter le poids
+                fused_pedals[i] = (
+                    (fp_start + p_start) / 2,
+                    (fp_end + p_end) / 2,
+                    fp_weight + weight,
+                    fp_models + [mname],
+                )
+                assigned = True
+                break
+        if not assigned:
+            fused_pedals.append((p_start, p_end, weight, [mname]))
+    
+    # Filtrer : ne garder que les pédales votées par au moins min_votes modèles
+    min_pedal_votes = min(2, len(all_model_results)) if len(all_model_results) > 1 else 1
+    fused_pedals = [
+        (ps, pe, w, models) for ps, pe, w, models in fused_pedals
+        if len(models) >= min_pedal_votes
+    ]
+    fused_pedals = [(ps, pe) for ps, pe, _, _ in fused_pedals]
+    
+    print(f"[Ensemble] P5.4 : {len(fused_pedals)} pédales fusionnées (multi-modèles)")
+    
+    # P6.2 : Retourner aussi uncertain_indices dans un wrapper
+    class _FusedResult:
+        def __init__(self, notes, midi, pedals, uncertain_ids):
+            self.notes = notes
+            self.midi = midi
+            self.pedals = pedals
+            self.uncertain_ids = uncertain_ids
+    return _FusedResult(fused_notes, fused_midi, fused_pedals, uncertain_notes)
 
 
-def transcribe_audio(audio_path, options=None):
+def transcribe_audio(audio_path, options=None, warnings=None):
     """
     Transcrit un fichier audio en événements de notes.
-    options: dict contenant les clés :
-      - transcriber ('basic_pitch', 'piano_transcription')
-      - use_demucs (bool)
-      - detect_tempo (bool)
-      - onset_threshold (float)
-      - frame_threshold (float)
+    
+    Args:
+        audio_path: Chemin vers le fichier audio
+        options: dict contenant les clés transcriber, use_demucs, detect_tempo, etc.
+        warnings: WarningCollector optionnel pour collecter les warnings structurés
+        
+    Returns:
+        tuple: (note_events, midi_data, pedal_intervals, tempo, warning_msgs)
     """
     if options is None:
         options = {
@@ -370,16 +477,20 @@ def transcribe_audio(audio_path, options=None):
             'frame_threshold': 0.25
         }
     
-    print(f"[Transcriber] Options reçues : {options}")
-    
-    warning_msgs = []
+    # P1.1 : Utiliser le collecteur si fourni, sinon fallback liste
+    if warnings is None:
+        warnings = WarningCollector()
     original_audio_path = audio_path
     
 
     # ── 1. Prétraitement Audio : Isolation Demucs ─────────────────────────────
     if options.get('use_demucs', False):
         print(f"[Transcriber DEBUG] use_demucs est TRUE. Options reçues: {options}")
-        audio_path = run_demucs_isolation(audio_path, warning_msgs)
+        try:
+            audio_path = run_demucs_isolation(audio_path, None)
+        except Exception as e:
+            warnings.add('demucs', 'warning', f'Demucs échoué: {e}. Désactivé.')
+            audio_path = original_audio_path
         print(f"[Transcriber DEBUG] Chemin audio après Demucs: {audio_path}")
     else:
         print(f"[Transcriber DEBUG] use_demucs est FALSE. Options reçues: {options}")
@@ -389,10 +500,19 @@ def transcribe_audio(audio_path, options=None):
     note_events = None
     midi_data = None
     pedal_intervals = []
+    uncertain_indices = None  # P6.2 : indices des notes incertaines (ensemble mode)
   
     # Ensemble Voting (multi-modèles)
     if transcriber_choice == 'ensemble':
-        note_events, midi_data, pedal_intervals = run_ensemble_transcription(audio_path, options)
+        fused_result = run_ensemble_transcription(audio_path, options)
+        # fused_result est un _FusedResult avec attributs .notes, .midi, .pedals, .uncertain_ids
+        note_events = fused_result.notes
+        midi_data = fused_result.midi
+        pedal_intervals = fused_result.pedals
+        # P6.2 : indices incertains retournés directement
+        uncertain_indices = fused_result.uncertain_ids
+        if uncertain_indices:
+            print(f"[Transcriber] P6.2 : {len(uncertain_indices)} notes marquées comme 'incertaines'")
   
     # Piano Transcription (recommandé)
     elif transcriber_choice == 'piano_transcription':
@@ -429,7 +549,9 @@ def transcribe_audio(audio_path, options=None):
     # ── 3. Estimation / Détection du tempo ────────────────────────────────────
     tempo = None
     if options.get('detect_tempo', True):
-        tempo = detect_tempo_librosa(original_audio_path)
+        tempo_warn, tempo = detect_tempo_librosa(original_audio_path)
+        if tempo_warn:
+            warnings._warnings.extend(tempo_warn.warnings_full())
         if tempo:
             print(f"[Transcriber] Tempo détecté par Librosa : {tempo} BPM")
 
@@ -437,7 +559,8 @@ def transcribe_audio(audio_path, options=None):
         tempo = estimate_tempo_from_events(note_events)
         print(f"[Transcriber] Tempo estimé à partir des notes : {tempo} BPM")
 
-    return note_events, midi_data, pedal_intervals, tempo, warning_msgs
+    # P6.2 : Retourner uncertain_indices dans le tuple (5e élément)
+    return note_events, midi_data, pedal_intervals, tempo, warnings.warnings(), uncertain_indices
 
 
 # ── Fonctions moteurs de transcription ────────────────────────────────────────
@@ -847,6 +970,219 @@ def run_piano_transcription(audio_path, options):
     return note_events, midi_data, pedal_intervals
 
 
+# ── P1.4 : Import de tonality_detector avec gestion ImportError ─────────────────
+
+_tonality_detector_available = False
+_tonality_detector_error = None
+_detect_tonality_fn = None
+
+try:
+    from tonality_detector import detect_tonality as _dt_fn
+    _tonality_detector_available = True
+    _detect_tonality_fn = _dt_fn
+except ImportError as e:
+    _tonality_detector_error = str(e)
+except Exception as e:
+    _tonality_detector_error = str(e)
+
+
+def detect_tonality_safe(note_events, audio_path=None, sr=22050, warnings=None):
+    """
+    Détecte la tonalité en utilisant tonality_detector si disponible.
+    
+    P1.4 : Si tonality_detector n'est pas disponible, retourne un warning
+    structuré au lieu de planter avec ImportError.
+    
+    Args:
+        note_events: Liste d'événements notes (tuple ou dict)
+        audio_path: Chemin optionnel vers le fichier audio
+        sr: Sample rate
+        warnings: WarningCollector optionnel pour ajouter un warning si indisponible
+        
+    Returns:
+        dict: {
+            'key': str (12 pitches),
+            'mode': 'major' | 'minor',
+            'confidence': float 0-1,
+            'source': 'tonality_detector' | 'fallback_pitch_class' | 'default',
+            'error': str | None
+        }
+    """
+    # Si tonality_detector est disponible, l'utiliser
+    if _tonality_detector_available and _detect_tonality_fn is not None:
+        try:
+            result = _detect_tonality_fn(note_events, audio_path, sr)
+            result['source'] = 'tonality_detector'
+            result['error'] = None
+            return result
+        except Exception as e:
+            # Le module est importé mais a échoué à l'exécution
+            if warnings is not None:
+                warnings.add_warning('tonality', f'tonality_detector a échoué : {e}')
+            # Fallback vers détection par pitch class
+            return _detect_from_pitch_class(note_events)
+    
+    # tonality_detector indisponible → warning + fallback
+    if warnings is not None:
+        warnings.add_warning(
+            'tonality',
+            f'tonality_detector indisponible ({_tonality_detector_error}). '
+            'Utilisation de la détection par distribution de hauteurs (fallback).'
+        )
+    return _detect_from_pitch_class(note_events)
+
+
+def _detect_from_pitch_class(note_events):
+    """
+    Fallback : détection de tonalité par distribution de pitch classes.
+    
+    Implémentation simplifiée inspirée de tonality_detector mais
+    sans dépendances externes (soundfile, librosa).
+    """
+    if not note_events or len(note_events) == 0:
+        return {
+            'key': 'C',
+            'mode': 'major',
+            'confidence': 0.0,
+            'source': 'fallback_pitch_class',
+            'error': None,
+            'profile': [0.0] * 12
+        }
+    
+    # Compter les pitch classes
+    pitch_class_counts = [0] * 12
+    for event in note_events:
+        if isinstance(event, dict):
+            midi_note = event.get('midi_note', event.get('pitch_midi', 0))
+        elif isinstance(event, (list, tuple)):
+            midi_note = int(event[1])
+        else:
+            continue
+        pc = int(midi_note) % 12
+        pitch_class_counts[pc] += 1
+    
+    # Normaliser
+    total = sum(pitch_class_counts)
+    if total == 0:
+        return {
+            'key': 'C',
+            'mode': 'major',
+            'confidence': 0.0,
+            'source': 'fallback_pitch_class',
+            'error': None,
+            'profile': [0.0] * 12
+        }
+    
+    chroma = np.array(pitch_class_counts, dtype=float) / total
+    
+    # Profils Krumhansl-Schmuckler
+    MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 3.54, 2.36, 3.17, 2.88, 3.32]
+    MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 4.57, 2.48, 3.70, 4.77, 3.18, 2.30]
+    keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+    
+    best_major_corr = -float('inf')
+    best_minor_corr = -float('inf')
+    major_key = 0
+    minor_key = 0
+    
+    for rot in range(12):
+        rotated_major = np.roll(MAJOR_PROFILE, rot)
+        corr_m = float(np.dot(chroma, rotated_major) / (np.linalg.norm(chroma) * np.linalg.norm(rotated_major) + 1e-10))
+        if corr_m > best_major_corr:
+            best_major_corr = corr_m
+            major_key = rot
+        
+        rotated_minor = np.roll(MINOR_PROFILE, rot)
+        corr_mi = float(np.dot(chroma, rotated_minor) / (np.linalg.norm(chroma) * np.linalg.norm(rotated_minor) + 1e-10))
+        if corr_mi > best_minor_corr:
+            best_minor_corr = corr_mi
+            minor_key = rot
+    
+    if best_major_corr > best_minor_corr:
+        key = keys[major_key]
+        mode = "major"
+        confidence = min(max(best_major_corr / 5.0, 0.0), 1.0)
+        profile = [float(x) for x in np.roll(MAJOR_PROFILE, major_key)]
+    else:
+        key = keys[minor_key]
+        mode = "minor"
+        confidence = min(max(best_minor_corr / 5.0, 0.0), 1.0)
+        profile = [float(x) for x in np.roll(MINOR_PROFILE, minor_key)]
+    
+    return {
+        'key': key,
+        'mode': mode,
+        'confidence': round(confidence, 4),
+        'source': 'fallback_pitch_class',
+        'error': None,
+        'profile': profile
+    }
+
+
+class WarningCollector:
+    """
+    Collecteur de warnings structuré pour le pipeline.
+    
+    Accumule les warnings avec catégorie, niveau de sévérité et message.
+    Le pipeline retourne warnings() au frontend via score_data['warnings'].
+    
+    En mode strict (strict_mode=True), les warnings de niveau 'error' lèvent
+    une exception au lieu d'être simplement collectés.
+    """
+    
+    def __init__(self, strict_mode=False):
+        self._warnings = []
+        self._strict_mode = strict_mode
+    
+    def add(self, category, level, message):
+        """Ajouter un warning structuré."""
+        entry = {
+            'category': category,
+            'level': level,
+            'message': message,
+        }
+        self._warnings.append(entry)
+        
+        # P1.2 : Mode strict — lever une exception pour les erreurs critiques
+        if self._strict_mode and level == 'error':
+            raise PipelineError(
+                f"[{category.upper()}] {message}"
+            )
+    
+    def add_critical(self, category, message):
+        """Ajouter un warning de niveau error (raccourci)."""
+        self.add(category, 'error', message)
+    
+    def add_warning(self, category, message):
+        """Ajouter un warning de niveau warning (raccourci)."""
+        self.add(category, 'warning', message)
+    
+    def add_info(self, category, message):
+        """Ajouter un warning de niveau info (raccourci)."""
+        self.add(category, 'info', message)
+    
+    def warnings(self):
+        """Retourne la liste des messages (pour compatibilité backward)."""
+        return [w['message'] for w in self._warnings]
+    
+    def warnings_full(self):
+        """Retourne les warnings complets avec métadonnées."""
+        return list(self._warnings)
+    
+    def has_errors(self):
+        return any(w['level'] == 'error' for w in self._warnings)
+    
+    def has_warnings(self):
+        return any(w['level'] == 'warning' for w in self._warnings)
+    
+    def clear(self):
+        """Vider le collecteur."""
+        self._warnings.clear()
+    
+    def __bool__(self):
+        return len(self._warnings) > 0
+
+
 # ── Prétraitement Audio : Isolation Demucs ────────────────────────────────────
 
 def run_demucs_isolation(audio_path, warning_msgs):
@@ -902,7 +1238,12 @@ def run_demucs_isolation(audio_path, warning_msgs):
 # ── Analyse Musicale ──────────────────────────────────────────────────────────
 
 def detect_tempo_librosa(audio_path):
-    """Détecte le tempo à l'aide de librosa.beat.beat_track()."""
+    """Détecte le tempo à l'aide de librosa.beat.beat_track().
+    
+    Returns:
+        tuple: (warnings_collected, tempo) — warnings est un WarningCollector
+    """
+    warnings = WarningCollector()
     try:
         import librosa
         print(f"[Librosa] Analyse du tempo pour {os.path.basename(audio_path)}...")
@@ -915,10 +1256,12 @@ def detect_tempo_librosa(audio_path):
             tempo_val = float(tempo)
             
         if 40 <= tempo_val <= 250:
-            return int(round(tempo_val))
+            return warnings, int(round(tempo_val))
+        else:
+            warnings.add_warning('tempo', f'Tempo hors plage: {tempo_val} BPM (40-250 requis)')
     except Exception as e:
-        print(f"[Librosa] Échec de la détection du tempo : {e}")
-    return None
+        warnings.add_warning('tempo', f'Détection tempo Librosa échouée: {e}')
+    return warnings, None
 
 
 def estimate_tempo_from_events(note_events, default=120):
@@ -964,12 +1307,15 @@ class TranscriptionPipeline:
     
     Utilise les fonctions existantes de transcriber.py et intègre
     les modules de quantisation, détection de tonalité et construction de partition.
+    
+    Supporte un callback de progression pour le SSE progress :
+        progress_cb(step: str, message: str, progress: float) -> None
     """
     
     def __init__(self):
         self.name = "TranscriptionPipeline v3"
     
-    def run(self, input_path, output_dir, options=None):
+    def run(self, input_path, output_dir, options=None, progress_cb=None):
         """
         Exécute le pipeline complet de transcription.
         
@@ -996,6 +1342,18 @@ class TranscriptionPipeline:
         from score_builder import build_score
 
         print(f"[Pipeline] Début de la transcription: {input_path}")
+        
+        def _cb(step, message, progress):
+            if progress_cb:
+                try:
+                    progress_cb(step, message, progress)
+                except Exception as e:
+                    print(f"[Pipeline] ⚠ progress_cb error: {e}")
+        
+        # [DEBUG] Forcer un flush des logs pour tracer le pipeline
+        import sys; sys.stdout.flush()
+        
+        _cb('init', 'Démarrage de la transcription...', 0.0)
 
         options = options or {
             'transcriber': 'piano_transcription',
@@ -1006,14 +1364,36 @@ class TranscriptionPipeline:
         }
 
         # ── 1. Transcription brute (audio → note_events) ─────────────────────
-        note_events, midi_data, pedal_intervals, raw_tempo, warning_msgs = transcribe_audio(
-            input_path, options
+        _cb('transcription', 'Prétraitement audio et transcription IA...', 0.10)
+        print(f"[Pipeline] >>> Appel transcribe_audio()...", flush=True)
+        
+        # P1.1 : Collecteur de warnings structuré
+        # P1.2 : Support du mode strict via option 'strict_mode'
+        strict_mode = options.get('strict_mode', False)
+        pipeline_warnings = WarningCollector(strict_mode=strict_mode)
+        
+        print(f"[Pipeline] [1/8] Transcription audio (onset detection + modèle IA)...")
+        note_events, midi_data, pedal_intervals, raw_tempo, _warnings_list, uncertain_indices = transcribe_audio(
+            input_path, options, warnings=pipeline_warnings
         )
+        print(f"[Pipeline] <<< transcribe_audio() terminé: {len(note_events)} notes", flush=True)
+        _cb('transcription', f'Transcription terminée: {len(note_events)} notes brutes', 0.35)
+        
+        # P1.2 : Erreur critique — aucune note détectée
+        if strict_mode and not note_events:
+            pipeline_warnings.add_critical('transcription', 'Aucune note détectée dans l\'audio')
+        
         if not note_events:
             raise ValueError("Aucune note détectée dans l'audio")
         print(f"[Pipeline] {len(note_events)} notes brutes")
 
-        # ── 1.5 Filtrage note_filter (FIX #2) ─────────────────────────────────
+        # ── 1.5 Filtrage + P5.1 pedal-aware shortening ─────────────────────
+        # [P5] IMPORTANT : apply_pedal_aware_shortening est APPLIQUÉ APRÈS la quantification
+        # pour préserver les durées cohérentes avec la pédale.
+        # La quantification se fait en beats, apply_pedal_aware_shortening
+        # se fait en secondes AVANT quantification → on inverse l'ordre.
+        
+        _cb('filtering', 'Filtrage des notes et analyse de la pédale...', 0.38)
         
         notes_dict = [
             {
@@ -1025,12 +1405,22 @@ class TranscriptionPipeline:
             for n in note_events
         ]
         try:
-            from note_filter import filter_ghost_notes, apply_pedal_aware_shortening
+            from note_filter import filter_ghost_notes
             notes_dict = filter_ghost_notes(notes_dict, options)
-            notes_dict = apply_pedal_aware_shortening(notes_dict, pedal_intervals or [], options)
-            print(f"[Pipeline] {len(notes_dict)} notes après note_filter (ghost + pedal-aware)")
+            print(f"[Pipeline] {len(notes_dict)} notes après filter_ghost_notes")
         except Exception as e:
-            print(f"[Pipeline] ⚠ note_filter indisponible ({e}), fallback filtrage naïf")
+            print(f"[Pipeline] ⚠ note_filter.filter_ghost_notes indisponible ({e})")
+        
+        # ── P5.1 : apply_pedal_aware_shortening AVANT quantification ─────────
+        # On raccourcit les notes en secondes AVANT de quantifier en beats.
+        # Si on le faisait après quantification, les durées seraient déjà
+        # arrondies et incohérentes avec les temps réels de la pédale.
+        try:
+            from note_filter import apply_pedal_aware_shortening
+            notes_dict = apply_pedal_aware_shortening(notes_dict, pedal_intervals or [], options)
+            print(f"[Pipeline] {len(notes_dict)} notes après apply_pedal_aware_shortening (P5.1)")
+        except Exception as e:
+            print(f"[Pipeline] ⚠ note_filter.apply_pedal_aware_shortening indisponible ({e})")
 
         remove_short = options.get('remove_short_notes', False)
         min_dur_s = options.get('minimum_note_duration', 50) / 1000.0
@@ -1057,25 +1447,47 @@ class TranscriptionPipeline:
             notes_dict = merged
             notes_dict.sort(key=lambda n: n['onset'])
 
+        # ── P5.2 : Vélocité standardisée 0-127 ──────────────────────────────
+        # Conversion de velocity [0.0-1.0] → [0-127] avec préservation
+        # de la dynamique originale (max/médiane pondérée).
+        original_velocities = [n['velocity'] for n in notes_dict if n['velocity'] > 0]
+        if original_velocities:
+            max_amp = max(original_velocities)
+            median_amp = sorted(original_velocities)[len(original_velocities) // 2]
+            print(f"[Pipeline] P5.3 : max_amplitude={max_amp:.3f}, median_amplitude={median_amp:.3f}")
+        
         note_events = [
-            (n['onset'], n['pitch'], n['duration'],
-             int(round(n['velocity'] * 127)) if n['velocity'] <= 1 else int(n['velocity']))
+            (
+                n['onset'],
+                n['pitch'],
+                n['duration'],
+                int(round(n['velocity'] * 127)) if n['velocity'] <= 1.0 else int(n['velocity']),
+            )
             for n in notes_dict
         ]
-        print(f"[Pipeline] {len(note_events)} notes après filtrage complet")
+        print(f"[Pipeline] {len(note_events)} notes après filtrage complet (P5.2)")
 
         # ── 2. Tempo Map ─────────────────────────────────────────────────────
+        _cb('tempomap', 'Analyse du tempo et de la mesure...', 0.50)
+        print(f"[Pipeline] >>> build_tempo_map()...", flush=True)
+        
         user_tempo = options.get('tempo')
         start_bpm = float(user_tempo) if user_tempo else None
         tm = build_tempo_map(input_path, note_events, start_bpm=start_bpm)
+        print(f"[Pipeline] <<< build_tempo_map() terminé: BPM={tm.global_bpm}", flush=True)
         display_bpm = tm.global_bpm
         if start_bpm and not options.get('detect_tempo', True):
             display_bpm = start_bpm
 
         # ── 3. Quantification (V4 tempo-map-aware, fallback V3) ──────────────
         quantization_level = options.get('quantization_level', 'standard')
+        _cb('quantization', 'Quantification rythmique...', 0.55)
+        print(f"[Pipeline] >>> Quantification ({quantization_level})...", flush=True)
+        quantized_notes = None
+        quantizer_method = 'unknown'
         try:
             from tempo_quantizer import quantize_notes as quantize_notes_v4
+            print(f"[Pipeline] >>> Import tempo_quantizer...", flush=True)
             quantized_notes = quantize_notes_v4(
                 note_events,
                 bpm=tm.global_bpm,
@@ -1084,20 +1496,37 @@ class TranscriptionPipeline:
                 enable_triplets=options.get('enable_triplets', False),
                 tempo_map=tm,
             )
-            print(f"[Pipeline] Quantizer V4 tempo-map-aware ({quantization_level})")
+            quantizer_method = 'tempo_quantizer (V4)'
+            print(f"[Pipeline] <<< Quantizer V4 OK ({quantization_level})", flush=True)
         except Exception as e:
+            # P1.2 : Erreur critique en mode strict
+            if strict_mode:
+                pipeline_warnings.add_critical('quantizer', f'Quantizer V4 indisponible et aucune alternative : {e}')
             print(f"[Pipeline] ⚠ Quantizer V4 indisponible ({e}), fallback V3")
-            quantized_notes = quantize_notes(
-                note_events,
-                bpm=tm.global_bpm,
-                quantization_level=quantization_level,
-                enable_rubato=options.get('enable_rubato', False),
-                enable_triplets=options.get('enable_triplets', False),
-                tempo_map=tm,
-            )
-        print(f"[Pipeline] {len(quantized_notes)} notes quantisées")
+            try:
+                from quantizer import quantize_notes as quantize_notes_v3
+                print(f"[Pipeline] >>> Import quantizer (fallback)...", flush=True)
+                quantized_notes = quantize_notes_v3(
+                    note_events,
+                    bpm=tm.global_bpm,
+                    quantization_level=quantization_level,
+                    enable_rubato=options.get('enable_rubato', False),
+                    enable_triplets=options.get('enable_triplets', False),
+                    tempo_map=tm,
+                )
+                quantizer_method = 'quantizer (V3 fallback)'
+                print(f"[Pipeline] <<< Quantizer V3 OK", flush=True)
+            except Exception as e2:
+                if strict_mode:
+                    pipeline_warnings.add_critical('quantizer', f'Tous les quantizers ont échoué : V4({e}), V3({e2})')
+                raise
+        print(f"[Pipeline] <<< {len(quantized_notes)} notes quantisées ({quantizer_method})", flush=True)
+        _cb('quantization', f'Quantification terminée: {len(quantized_notes)} notes', 0.70)
 
-        # ── 4. Analyse harmonique (TOUJOURS, pas seulement en preset jazz) ──
+        # ── 4. Analyse harmonique (TOUJOURS) ──────────────────────────────
+        _cb('harmony', 'Analyse harmonique et détection de tonalité...', 0.70)
+        print(f"[Pipeline] >>> Analyse harmonique...", flush=True)
+        
         preset = options.get('preset', 'standard')
         harmonic_ctx = None
         key_name = options.get('key_sig', 'C')
@@ -1118,24 +1547,40 @@ class TranscriptionPipeline:
 
             if options.get('detect_key', True):
                 key_name = harmonic_ctx.global_key
-                print(f"[Pipeline] Tonalité détectée: {key_name}")
+                print(f"[Pipeline] <<< Tonalité détectée: {key_name}", flush=True)
         except Exception as e:
-            print(f"[Pipeline] ⚠ Analyse harmonique en échec ({e})")
+            # P1.2 : Erreur critique en mode strict (harmonie nécessaire pour split LH/MD)
+            if strict_mode:
+                pipeline_warnings.add_critical('harmony', f'Analyse harmonique en échec : {e}')
+            print(f"[Pipeline] <<< Analyse harmonique en échec ({e})", flush=True)
 
         # ── 5. Séparation LH/RH guidée par harmonie (FIX #3) ─────────────────
+        _cb('voice_split', 'Séparation mains gauche/droite...', 0.78)
+        print(f"[Pipeline] >>> Split LH/RH...", flush=True)
+        
         try:
             if harmonic_ctx is not None:
                 from voice_engine import split_with_harmony
+                print(f"[Pipeline] >>> split_with_harmony...", flush=True)
                 voices = split_with_harmony(quantized_notes, harmonic_ctx, options)
+                print(f"[Pipeline] <<< split_with_harmony OK", flush=True)
                 print("[Pipeline] Split LH/RH : split_with_harmony (guidé)")
             else:
+                print(f"[Pipeline] >>> split_voices (fallback)...", flush=True)
                 voices = split_voices(quantized_notes, options=options)
+                print(f"[Pipeline] <<< split_voices OK", flush=True)
                 print("[Pipeline] Split LH/RH : split_voices (fallback)")
         except Exception as e:
-            print(f"[Pipeline] ⚠ split_with_harmony échoué ({e}), fallback split_voices")
+            # P1.2 : Erreur critique en mode strict (split nécessaire pour partition)
+            if strict_mode:
+                pipeline_warnings.add_critical('voice_split', f'Séparation LH/RH en échec : {e}')
+            print(f"[Pipeline] <<< split_with_harmony échoué ({e}), fallback split_voices", flush=True)
             voices = split_voices(quantized_notes, options=options)
 
         # ── 6. Construction du score ─────────────────────────────────────────
+        _cb('score_build', 'Construction de la partition...', 0.85)
+        print(f"[Pipeline] >>> build_score()...", flush=True)
+        
         time_sig_str = options.get('time_sig', '4/4')
         try:
             ts_parts = time_sig_str.split('/')
@@ -1160,37 +1605,86 @@ class TranscriptionPipeline:
                     (tm.seconds_to_beat(p_start), tm.seconds_to_beat(p_end))
                 )
 
+        # [P6] Collecter les IDs de notes incertaines (fallback single-model)
+        uncertain_note_ids = list(uncertain_indices) if uncertain_indices else []
+        if uncertain_note_ids:
+            print(f"[Pipeline] {len(uncertain_note_ids)} notes marquées comme 'incertaines' (P6)")
+
         score_data = build_score(
             voices, tm,
             key_sig=key_name,
             options=score_options,
             harmonic_ctx=harmonic_ctx,
             pedals=pedal_beats_list,
+            uncertain_note_ids=uncertain_note_ids,  # [P6]
         )
 
-        score_data.setdefault('metadata', {})['warnings'] = warning_msgs
+        score_data.setdefault('metadata', {})['warnings'] = pipeline_warnings.warnings()
+
+        # ── 2.5 [P3.5] Transmettre métadonnées TempoMap au score_data ───────
+        score_data['tempoMapMethod']  = tm.method
+        score_data['detectedMeter']   = list(tm.estimated_meter)
+        score_data['tempoRange']      = tm.tempo_range() if hasattr(tm, 'tempo_range') else []
+        score_data['tempoConfidence'] = (
+            0.85 if tm.method == 'madmom'
+            else (0.6 if tm.method == 'librosa_advanced' else 0.3)
+        )
+        print(f"[Pipeline] TempoMap: method={tm.method} BPM={tm.global_bpm:.1f} "
+              f"meter={tm.estimated_meter} beats={len(tm.beat_times)} "
+              f"downbeats={len(tm.downbeat_times)}")
+
+        # ── 2.6 [P3.5] Vérifier cohérence signature détectée vs demandée ──
+        if options.get('detect_meter', True):
+            detected = tm.estimated_meter
+            if detected[0] == 3 and options.get('time_sig', '4/4') == '3/4':
+                print("[Pipeline] ✓ Signature 3/4 détectée et confirmée (Mazurka OK)")
+            elif detected[0] != int(options.get('time_sig', '4/4').split('/')[0]):
+                print(f"[Pipeline] ⚠ Signature auto ({detected[0]}/{detected[1]}) ≠ "
+                      f"manuelle ({options.get('time_sig', '4/4')})")
+        else:
+            print(f"[Pipeline] Tempo utilisateur: {options.get('tempo', 'auto')} BPM")
 
         # ── 7. Export MIDI + MusicXML réel (FIX #5) ──────────────────────────
+        _cb('export', 'Export MIDI et MusicXML...', 0.92)
+        
         os.makedirs(output_dir, exist_ok=True)
         midi_path = os.path.join(output_dir, 'output.mid')
         xml_path = os.path.join(output_dir, 'score.musicxml')
 
-        midi_parser.score_to_midi(score_data, midi_path)
+        # P1.2 : Export MIDI — erreur critique si échec
+        try:
+            midi_parser.score_to_midi(score_data, midi_path)
+        except Exception as e:
+            if strict_mode:
+                pipeline_warnings.add_critical('midi_export', f'Export MIDI en échec : {e}')
+            raise
 
+        # P1.3 : Export MusicXML — plus jamais de stub vide
         try:
             from musicxml_exporter import export_musicxml
             export_musicxml(score_data, xml_path)
             print(f"[Pipeline] MusicXML généré : {xml_path}")
         except Exception as e:
-            print(f"[Pipeline] ⚠ Export MusicXML en échec ({e}), stub écrit")
-            with open(xml_path, 'w', encoding='utf-8') as f:
-                f.write('<?xml version="1.0" encoding="UTF-8"?><score-partwise></score-partwise>')
+            # P1.2 : En mode strict, lever une exception
+            if strict_mode:
+                pipeline_warnings.add_critical('musicxml_export', f'Export MusicXML en échec : {e}')
+                raise
+            # P1.3 : En mode normal, lever quand même (plus de stub)
+            # Mais on continue si music21 n'est pas installé (erreur courante en dev)
+            if 'music21' in str(e) or 'ModuleNotFoundError' in str(type(e).__bases__):
+                pipeline_warnings.add_warning('musicxml_export', f'music21 non disponible : {e}')
+                xml_path = None  # Indique que le fichier n'a pas été généré
+            else:
+                pipeline_warnings.add_critical('musicxml_export', f'Export MusicXML en échec : {e}')
+                raise
+        print(f"[Pipeline] <<< build_score() terminé", flush=True)
 
         # ── 8. Métadonnées pour le frontend ──────────────────────────────────
         score_data['midi_path'] = midi_path
         score_data['xml_path'] = xml_path
         score_data['note_count'] = len(quantized_notes)
-        score_data['warnings'] = warning_msgs
+        score_data['warnings'] = pipeline_warnings.warnings()
+        score_data['warnings_full'] = pipeline_warnings.warnings_full()
         score_data['tempoMapMethod'] = tm.method
         score_data['tempoConfidence'] = (
             0.85 if tm.method == 'madmom'
@@ -1199,6 +1693,8 @@ class TranscriptionPipeline:
         score_data['tempoRange'] = tm.tempo_range()
         score_data['detectedMeter'] = tm.estimated_meter
 
+        _cb('done', f'Terminé — MIDI: {midi_path} | XML: {xml_path}', 1.0)
+        
         print(f"[Pipeline] Terminé — MIDI: {midi_path} | XML: {xml_path}")
         return score_data
     
