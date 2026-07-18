@@ -1,6 +1,3 @@
-Emergent :
-2026-07-16 : sle..., s.lemesle@hotmail.com
-2026-07-17 : s.lemesle@hotmail.fr, ki-gestion@hotmail.com, kaodaninfo@gmail.com
 
 - défaut visuel, lors d'une transcription, affichage rest sur "Envoi du fichier", pas de barre de progression et pas d'i'os sur les étapes suivantes (moteur de transcription utilisé etc), juste "Réception du résultat" à la fin avec barre remplie
 
