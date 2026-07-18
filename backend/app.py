@@ -211,14 +211,32 @@ def _cleanup_old_jobs():
 
 def _run_pipeline_thread(job_id, input_path, output_dir, options):
     """Thread qui exécute le pipeline de transcription."""
-    with _jobs_lock:
-        if job_id in _transcription_jobs:
-            _transcription_jobs[job_id]['status'] = 'running'
-            _transcription_jobs[job_id]['message'] = 'Transcription en cours...'
-            _transcription_jobs[job_id]['progress'] = 0.1
+    def _update_progress(progress, message, step='transcription'):
+        """Met à jour la progression du job."""
+        with _jobs_lock:
+            if job_id in _transcription_jobs:
+                _transcription_jobs[job_id]['progress'] = progress
+                _transcription_jobs[job_id]['message'] = message
+                _transcription_jobs[job_id]['step'] = step
+                _transcription_jobs[job_id]['status'] = 'running'
 
+    # Étape 1: Initialisation
+    _update_progress(0.05, '🔍 Initialisation du modèle...', 'init')
+    
+    # Étape 2: Chargement audio
+    _update_progress(0.10, '🎵 Chargement de l\'audio...', 'load_audio')
+    
+    # Étape 3: Prétraitement (Demucs)
+    _update_progress(0.15, '🔊 Prétraitement audio...', 'demucs')
+    
     try:
-        result = pipeline.run(input_path, output_dir, options=options)
+        # Exécuter le pipeline avec callbacks de progression
+        result = pipeline.run(
+            input_path, 
+            output_dir, 
+            options=options,
+            progress_callback=_update_progress
+        )
         output_files = {}
         if result.get('midi_path'):
             output_files['midi'] = result['midi_path']
@@ -234,13 +252,14 @@ def _run_pipeline_thread(job_id, input_path, output_dir, options):
                 'processing_time': 0.0,
             }
             _transcription_jobs[job_id]['progress'] = 1.0
-            _transcription_jobs[job_id]['message'] = 'Transcription terminée avec succès!'
+            _transcription_jobs[job_id]['message'] = '✅ Transcription terminée avec succès!'
+            _transcription_jobs[job_id]['step'] = 'export'
     except Exception as e:
         logger.exception(f"[Transcribe] Pipeline error for job {job_id}")
         with _jobs_lock:
             _transcription_jobs[job_id]['status'] = 'error'
             _transcription_jobs[job_id]['error'] = str(e)
-            _transcription_jobs[job_id]['message'] = f'Transcription échouée: {e}'
+            _transcription_jobs[job_id]['message'] = f'❌ Transcription échouée: {e}'
 @app.route('/api/device', methods=['GET'])
 def device_compat():
     """Alias compatible avec le frontend qui attend `/api/device`.

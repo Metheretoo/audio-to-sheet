@@ -263,7 +263,7 @@ function initTranscriptionOptions() {
     };
 
     if (presetName === 'rapide') {
-      setTranscriberValue('basic_pitch');
+      setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
       setQuantizationValue('light');
       if (removeShortCb) removeShortCb.checked = false;
@@ -473,70 +473,99 @@ function initTranscriptionOptions() {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Polling Progress subscription (remplace SSE par polling HTTP)
+   SSE Progress subscription (Stream Server Events)
    ═══════════════════════════════════════════════════════════════════════════ */
+let currentSSESource = null;
+
 function subscribeToProgress(jobId) {
-  if (currentPollingTimer) {
-    clearInterval(currentPollingTimer);
-    currentPollingTimer = null;
+  // Nettoyer toute connexion SSE précédente
+  if (currentSSESource) {
+    currentSSESource.close();
+    currentSSESource = null;
   }
 
-//  console.log('[Polling] Début du polling pour job', jobId);
-  setLoadingStep('🔄 Vérification de la progression…');
+  console.log('[SSE] Connexion au flux de progression pour job', jobId);
+  setLoadingStep('🔍 Connexion au serveur…');
 
-  currentPollingTimer = setInterval(async () => {
+  currentSSESource = new EventSource(`/api/transcribe-progress/${jobId}`);
+
+  // Événement de statut (progression détaillée)
+  currentSSESource.addEventListener('status', (e) => {
     try {
-      const res = await fetch(`/api/transcribe/result/${jobId}`);
+      const data = JSON.parse(e.data);
+      console.log('[SSE] Status:', data);
       
-      if (res.status === 202) {
-        // Job en cours
-        const data = await res.json();
-        updateProgress(50);
-        setLoadingStep('⏳ Transcription en cours…');
-        return;
-      }
+      const step = data.step || 'transcription';
+      const message = data.message || 'Transcription en cours…';
+      const progress = data.progress || 0;
       
-      if (res.status === 200) {
-        // Terminé
-        const result = await res.json();
-        clearInterval(currentPollingTimer);
-        currentPollingTimer = null;
-        
+      updateProgress(progress * 100);
+      
+      // Mapper les étapes du backend vers des messages frontend
+      const stepMessages = {
+        'init': '🔍 Initialisation du modèle...',
+        'load_audio': '🎵 Chargement de l\'audio...',
+        'demucs': '🔊 Prétraitement audio...',
+        'transcription': message,
+        'filtering': '🧹 Filtrage des notes...',
+        'tempomap': '📊 Analyse du tempo...',
+        'quantization': '📐 Quantification rythmique...',
+        'voice_split': '✋ Séparation des mains...',
+        'score_build': '🎼 Construction de la partition...',
+        'export': '💾 Finalisation...',
+      };
+      
+      const displayMessage = stepMessages[step] || message;
+      setLoadingStep(displayMessage);
+      
+    } catch (err) {
+      console.error('[SSE] Erreur parsing status:', err);
+    }
+  });
+
+  // Événement de succès
+  currentSSESource.addEventListener('done', (e) => {
+    console.log('[SSE] Job terminé:', e.data);
+    clearInterval(currentPollingTimer);
+    currentPollingTimer = null;
+    if (currentSSESource) {
+      currentSSESource.close();
+      currentSSESource = null;
+    }
+    
+    updateProgress(100);
+    setLoadingStep('✅ Transcription terminée');
+    
+    // Récupérer le résultat final
+    fetch(`/api/transcribe/result/${jobId}`)
+      .then(res => res.json())
+      .then(result => {
         if (result.success) {
-          updateProgress(100);
-          setLoadingStep('✅ Transcription terminée');
           handleTranscriptionResult(result);
         } else {
           showSection('upload');
           showToast(`❌ ${result.error || 'Échec de la transcription'}`, 'error', 8000);
         }
-        return;
-      }
-      
-      if (res.status === 500) {
-        // Erreur serveur (pipeline a échoué)
-        const result = await res.json();
-        clearInterval(currentPollingTimer);
-        currentPollingTimer = null;
+      })
+      .catch(err => {
+        console.error('[SSE] Erreur récupération résultat:', err);
         showSection('upload');
-        showToast(`❌ ${result.error || 'Erreur serveur pendant la transcription'}`, 'error', 8000);
-        return;
-      }
-      
-      // Erreur 404 ou autre
-      clearInterval(currentPollingTimer);
-      currentPollingTimer = null;
-      showSection('upload');
-      showToast('❌ Job introuvable ou expiré', 'error', 8000);
-      
-    } catch (err) {
-      console.error('[Polling] Erreur:', err);
-      clearInterval(currentPollingTimer);
-      currentPollingTimer = null;
-      showSection('upload');
-      showToast(`❌ Erreur de polling : ${err.message}`, 'error', 8000);
+        showToast('❌ Erreur lors de la récupération du résultat', 'error', 8000);
+      });
+  });
+
+  // Événement d'erreur
+  currentSSESource.addEventListener('error', (e) => {
+    console.error('[SSE] Erreur de connexion:', e);
+    clearInterval(currentPollingTimer);
+    currentPollingTimer = null;
+    if (currentSSESource) {
+      currentSSESource.close();
+      currentSSESource = null;
     }
-  }, 1000); // Polling toutes les 1 seconde
+    showSection('upload');
+    showToast('❌ Erreur de connexion au serveur', 'error', 8000);
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

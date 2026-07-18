@@ -1032,7 +1032,9 @@ class TranscriptionPipeline:
         }
 
         # ── 1. Transcription brute (audio → note_events) ─────────────────────
-        _cb('transcription', 'Prétraitement audio et transcription IA...', 0.10)
+        _cb('load_audio', 'Chargement du fichier audio...', 0.05)
+        _cb('demucs', 'Prétraitement audio (Demucs)...', 0.15)
+        _cb('transcription', 'Transcription IA en cours...', 0.25)
         print(f"[Pipeline] >>> Appel transcribe_audio()...", flush=True)
         
         # P1.1 : Collecteur de warnings structuré
