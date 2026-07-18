@@ -31,6 +31,9 @@ desktop.ini
 # Node
 node_modules/
 
+# Dossier perso
+Partitions test et evol à faire/
+
 # Uploads et Outputs (fichiers temporaires)
 uploads/*.mp3
 uploads/*.wav
