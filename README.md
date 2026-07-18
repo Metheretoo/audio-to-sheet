@@ -1,4 +1,4 @@
-# AudioScore — Transcription Audio → Partition Piano (V3)
+# AudioScore — Transcription Audio → Partition Piano
 
 Application locale et open source pour convertir un fichier audio (MP3, WAV, FLAC) en partition de piano (clé de Sol + clé de Fa), avec édition interactive et lecture locale.
 
@@ -8,7 +8,7 @@ Application locale et open source pour convertir un fichier audio (MP3, WAV, FLA
 
 - **Python 3.9 ou supérieur** — [télécharger](https://python.org)
 - **Connexion Internet** uniquement pour la **première installation** (dépendances Python)
-- **Espace disque** : ~5-10 GB (modèles IA + dépendances)
+- **Espace disque** : ~5-10 Go (modèles IA + dépendances)
 
 > ⚠️ Si Python n'est pas dans le PATH Windows, cochez « Add Python to PATH » lors de l'installation.
 
@@ -18,7 +18,7 @@ Application locale et open source pour convertir un fichier audio (MP3, WAV, FLA
 
 ### Méthode 1 : Lanceur automatique
 
-Double-cliquez sur **`run_prod.bat`** (à la racine du projet).
+Double-cliquez sur **`Lanceur test.bat`** (à la racine du projet `audio-to-sheet/`).
 
 Le script va automatiquement :
 1. Vérifier Python
@@ -31,15 +31,18 @@ Le script va automatiquement :
 ### Méthode 2 : Installation manuelle
 
 ```bash
+# Se placer dans le dossier backend
+cd audio-to-sheet/backend
+
 # Créer et activer l'environnement virtuel
 python -m venv venv
 venv\Scripts\activate
 
 # Installer les dépendances
-pip install -r backend/requirements.txt
+pip install -r requirements.txt
 
 # Démarrer le serveur
-python backend/app.py
+python app.py
 ```
 
 ---
@@ -52,17 +55,39 @@ python backend/app.py
 
 ### 2. Modes de qualité
 
-| Mode | Transcripteur | Isolation | Quantification | Usage recommandé |
-|------|---------------|-----------|----------------|------------------|
-| **Rapide** | Basic Pitch | Désactivée | Standard | Aperçu immédiat sur fichier piano propre |
-| **Équilibré** (recommandé) | Piano Transcription | Activée (Demucs) | Standard (1/16) | Majority des morceaux (Pop, YouTube, etc.) |
-| **Studio** | Piano Transcription HD | Activée (Demucs) | Légère (1/32) | Classique, jazz, jeu expressif |
+| Mode | Transcripteur | Isolation | Quantification | Filtrage harmonique | Usage recommandé |
+|------|---------------|-----------|----------------|---------------------|------------------|
+| **Rapide** | Basic Pitch | Désactivée | Standard | Désactivé | Aperçu immédiat sur fichier piano propre |
+| **Équilibré** (recommandé) | Piano Transcription | Activée (Demucs) | Standard (1/16) | Désactivé | Majority des morceaux (Pop, YouTube, etc.) |
+| **Classique** | Transkun | Activée (Demucs) | Légère (1/32) | Classique | Musique classique (Chopin, Debussy...) |
+| **Studio** | Piano Transcription HD | Activée (Demucs) | Standard | Classique | Jeu expressif, arpèges rapides |
+| **Jazz** | Piano Transcription | Activée (Demucs) | Forte (1/8) | Désactivé | Morceaux swing ou rubato |
+| **Precision** | Transkun | Activée (Demucs) | Standard | Agressif | Partitions classiques complexes |
 
-### 3. Options avancées
+---
+
+### 3. Filtrage harmonique (nouveau)
+
+Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédale forte du piano :
+
+- **Comment ça marche ?** Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons) et quinte (+7). Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.
+- **Le filtrage les supprime** en se basant sur la vélocité et la simultanéité des notes.
+
+| Niveau | Description |
+|--------|-------------|
+| **Désactivé** | Pas de filtrage (par défaut) |
+| **Basique** | Filtre simple (octave + quinte) |
+| **Classique** | Recommandé pour Chopin, Debussy, musique classique |
+| **Agressif** | Pour partitions très complexes (mazurkas, nocturnes) |
+
+> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **Agressif**.
+
+### 4. Options avancées
 
 #### Transcripteur
 - **Basic Pitch** (rapide) : Modèle léger de Spotify, idéal pour mélodies simples
 - **Piano Transcription** (recommandé) : Entraîné spécifiquement sur le piano, meilleur pour accords complexes
+- **Transkun** (expressivité maximale) : Modèle Transformer SOTA avec haute précision expressive, idéal pour partitions classiques complexes
 
 #### Isolation du piano (Demucs)
 - Sépare les instruments et conserve principalement la piste piano
@@ -89,7 +114,7 @@ python backend/app.py
 - **Détection automatique du tempo** : BPM détecté par analyse audio
 - **Détection automatique de la tonalité** : Clé musicale détectée (armure)
 
-### 4. Paramètres manuels (optionnels)
+### 5. Paramètres manuels (optionnels)
 
 | Paramètre | Description |
 |-----------|-------------|
@@ -158,6 +183,7 @@ audio-to-sheet/
 ├── backend/
 │   ├── app.py                 ← Serveur Flask (API REST)
 │   ├── transcriber.py         ← Pipeline de transcription complet
+│   ├── harmonic_filter.py     ← Filtrage harmonique (suppression notes fantômes)
 │   ├── midi_parser.py         ← Analyse MIDI (notes, header, tempo)
 │   ├── quantizer.py           ← Quantization adaptative
 │   ├── tonality_detector.py   ← Détection tonalité & tempo

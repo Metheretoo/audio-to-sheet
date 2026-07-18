@@ -353,6 +353,7 @@ def quantize_notes(
     quantization_level: str = 'standard',
     enable_rubato: bool = False,
     enable_triplets: bool = False,
+    quantization_sensitivity: float = None,  # NOUVEAU : contrôle continu [0.0-1.0]
 ) -> List[QuantizedNote]:
     """
     Convertit des note_events bruts en QuantizedNote V3.
@@ -370,8 +371,15 @@ def quantize_notes(
             - 'light'    : grille 1/16 beat (triple croche)
             - 'standard' : grille 1/8  beat (double croche)  [défaut]
             - 'heavy'    : grille 1/4  beat (croche)
+            - 'classique': grille 1/32 beat, snap doux (0.15)
+            - 'precision': grille 1/32 beat, snap très doux (0.10)
         enable_rubato : si True, utilise une grille très fine (1/32 beat) pour le rubato expressif
         enable_triplets : si True, autorise les durées de triolet dans la quantification
+        quantization_sensitivity : sensibilité continue [0.0-1.0]
+            - 0.0 = quantification minimale (pas de snap)
+            - 0.5 = quantification moyenne
+            - 1.0 = quantification forte (snap agressif)
+            - None = utilise le preset tel quel (comportement par défaut)
 
     Returns:
         liste de QuantizedNote (V3)
@@ -385,6 +393,28 @@ def quantize_notes(
 
     beat_s = 60.0 / max(effective_bpm, 20.0)
 
+    # ── Mapping de sensibilité continu (0.0-1.0) ─────────────────────
+    # Quand quantization_sensitivity est fourni, il ajuste les paramètres
+    # du preset pour un contrôle plus fin.
+    if quantization_sensitivity is not None:
+        s = max(0.0, min(1.0, float(quantization_sensitivity)))
+        # Mapping non-linéaire : smoothstep pour plus de contrôle au milieu
+        if s < 0.5:
+            t = s / 0.5
+            t_curve = t * t * (3 - 2 * t)
+        else:
+            t = (s - 0.5) / 0.5
+            t_curve = t * t * (3 - 2 * t)
+        
+        # Ajuster grid_div : de 64 (très fin) à 4 (grossier)
+        grid_div_override = max(4, min(64, int(round(64 - t_curve * 60))))
+        snap_override = t_curve * 0.50
+        min_dur_override = 0.0625 + t_curve * 0.1875
+    else:
+        grid_div_override = None
+        snap_override = None
+        min_dur_override = None
+    
     # Choisir la résolution de la grille de position
     # (diviseur : nombre de subdivisions par beat)
     grid_map = {
@@ -394,10 +424,12 @@ def quantize_notes(
         'heavy':      4,   # 1/4  beat = croche
         'rubato':    32,   # 1/32 beat : capte le micro-timing expressif
         'triplets':  12,   # 1/12 beat : base triolet + subdivisions binaires
-        'classique': 32,   # NOUVEAU : 1/32 beat, comparable au rubato mais
-                           # avec snap réel actif (voir snap_map ci-dessous)
+        'classique': 32,   # 1/32 beat : snap doux (0.15)
+        'precision': 32,   # NOUVEAU : 1/32 beat, snap très doux (0.10)
     }
     grid_div = grid_map.get(quantization_level, 8)
+    if grid_div_override is not None:
+        grid_div = max(grid_div, grid_div_override)  # au moins aussi fin
 
     # Grille d'aimantation : résolution vers laquelle on attire les notes proches
     # pour éliminer les micro-silences parasites.
@@ -406,9 +438,8 @@ def quantize_notes(
     #   snap_div = 2  → snap_step = 0.5 beat = CROCHE
     #   snap_div = 1  → snap_step = 1.0 beat = NOIRE
     #
-    # Le threshold à 30% évite d'avaler les vraies doubles-croches intentionnelles :
-    #   note à 0.125 beat d'une croche → snap (car 0.125 < 0.5*0.30=0.15) ✓
-    #   note à 0.25 beat d'une croche  → pas snap (car 0.25 > 0.15) ✓ (double-croche voulue)
+    # Le threshold à 15% (classique) / 10% (precision) évite d'avaler
+    # les vraies doubles-croches intentionnelles.
     snap_map = {
         'none':      0,    # pas d'aimantation
         'light':     4,    # → double-croche (snap_step=0.25)
@@ -416,10 +447,30 @@ def quantize_notes(
         'heavy':     1,    # → noire         (snap_step=1.0)
         'rubato':    4,    # → double-croche : garde le rubato mais lisible
         'triplets':  3,    # → tiers de beat : aimantation sur triolets
-        'classique': 4,    # NOUVEAU : aimantation sur double-croche
+        'classique': 4,    # aimantation sur double-croche (snap=0.15)
+        'precision': 4,    # aimantation sur double-croche (snap=0.10)
     }
     snap_div = snap_map.get(quantization_level, 2)
-    snap_threshold_ratio = 0.45   # 45% de la cellule = aimantation forte pour éviter la "soupe"
+    
+    # Déterminer le snap_threshold_ratio selon le preset
+    snap_threshold_map = {
+        'none':      0.00,  # pas de snap
+        'light':     0.25,
+        'standard':  0.40,
+        'heavy':     0.50,
+        'rubato':    0.20,
+        'triplets':  0.35,
+        'classique': 0.15,   # RÉDUIT de 0.30 → 0.15 pour éviter la fusion de notes
+        'precision': 0.10,   # NOUVEAU : snap très doux
+    }
+    snap_threshold_ratio = snap_threshold_map.get(quantization_level, 0.45)
+    
+    # Si quantization_sensitivity est fourni, ajuster le snap
+    if snap_override is not None:
+        snap_threshold_ratio = min(snap_threshold_ratio, snap_override)
+    
+    # Duration min override
+    min_dur = min_dur_override if min_dur_override else 0.125
 
     # BUG CORRIGÉ (v4.1) : le mode Rubato forçait auparavant grid_div=32 ET
     # désactivait complètement l'aimantation (snap_div=0), ÉCRASANT le niveau

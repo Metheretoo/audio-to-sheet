@@ -96,364 +96,11 @@ os.environ.setdefault('NUMBA_DEBUG_ARRAY_OPT', '0')
 os.environ.setdefault('NUMBA_DEBUG_ARRAY_OPT_PASSMANAGER', '0')
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ENSEMBLE VOTING — Fusion multi-modèles (configurable via config.yaml)
+# ENSEMBLE VOTING — Délégué à ensemble_voter.py
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _detect_available_ensemble_models() -> dict:
-    """Détecte à runtime quels modèles d'ensemble sont réellement utilisables."""
-    import importlib
-    import os
-    availability = {
-        'piano_transcription': False,
-        'basic_pitch': False,
-        'transkun': False,
-        'hft': False,
-        'mt3': False,
-    }
-    try:
-        importlib.import_module('piano_transcription_inference')
-        availability['piano_transcription'] = True
-    except ImportError:
-        pass
-    try:
-        importlib.import_module('basic_pitch.inference')
-        availability['basic_pitch'] = True
-    except ImportError:
-        pass
-    try:
-        importlib.import_module('transkun')
-        availability['transkun'] = True
-    except ImportError:
-        pass
-    try:
-        importlib.import_module('run_hft')
-        availability['hft'] = True
-    except (ImportError, ModuleNotFoundError):
-        pass
-    mt3_path = os.environ.get('MT3_PATH', '/mt3')
-    availability['mt3'] = os.path.isdir(mt3_path)
-    return availability
-
-
-def run_ensemble_transcription(audio_path, options):
-    """
-    Exécute la transcription en mode ensemble (vote multi-modèles).
-    Auto-détection des modèles disponibles + filtrage transparent.
-    
-    Args:
-        audio_path: Chemin vers le fichier audio
-        options: Dictionnaire d'options (peut contenir 'ensemble' pour override)
-        
-    Returns:
-        tuple: (note_events, midi_data, pedal_intervals) fusionnés
-    """
-    import time
-    import numpy as np
-    from collections import defaultdict
-    import pretty_midi
-    
-    print("[Ensemble] Démarrage de la transcription en mode ensemble...")
-    t0 = time.perf_counter()
-    
-    ensemble_config = options.get('ensemble', {})
-    
-    # Configuration par défaut des modèles (poids)
-    # NOTE : basic_pitch retiré du défaut (qualité inférieure sur classique)
-    # Pour l'activer, l'ajouter manuellement dans config.yaml ou options['ensemble']['models']
-    default_models = [
-        {'name': 'piano_transcription', 'weight': 1.5, 'onset_weight': 1.2, 'pitch_weight': 1.0, 'duration_weight': 1.0},
-        {'name': 'transkun',           'weight': 1.3, 'onset_weight': 1.1, 'pitch_weight': 1.1, 'duration_weight': 1.1},
-        # {'name': 'basic_pitch',      'weight': 1.0, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 0.8},
-        # {'name': 'hft',              'weight': 1.2, 'onset_weight': 1.0, 'pitch_weight': 1.0, 'duration_weight': 1.0},
-    ]
-    models_config = ensemble_config.get('models', default_models)
-
-    # PHASE 3 : filtrer selon la dispo réelle des modèles
-    availability = _detect_available_ensemble_models()
-    print(f"[Ensemble] Modèles disponibles : "
-          f"{[k for k, v in availability.items() if v]}")
-
-    filtered_models = [m for m in models_config if availability.get(m['name'], False)]
-    if len(filtered_models) < len(models_config):
-        skipped = [m['name'] for m in models_config if not availability.get(m['name'], False)]
-        print(f"[Ensemble] ⚠ Modèles indisponibles, ignorés : {skipped}")
-
-    if not filtered_models:
-        raise RuntimeError(
-            "Ensemble impossible : aucun modèle installé. "
-            "Vérifie : pip install piano_transcription_inference basic_pitch transkun"
-        )
-
-    if len(filtered_models) < 2:
-        print(f"[Ensemble] Un seul modèle dispo ({filtered_models[0]['name']}), "
-              f"bascule sur mode single-model.")
-        # Fallback direct au modèle disponible
-        model_fn = {
-            'piano_transcription': run_piano_transcription,
-            'basic_pitch': run_basic_pitch,
-            'transkun': run_transkun,
-        }.get(filtered_models[0]['name'])
-        if model_fn:
-            return model_fn(audio_path, options)
-        raise RuntimeError(f"Modèle {filtered_models[0]['name']} non implémenté pour fallback")
-
-    models_config = filtered_models
-
-    # ── P6.1 : onset_tolerance adaptatif proportionnel au tempo local ──
-    # Au lieu d'un seuil fixe (0.05s), on adapte le tolérance au BPM local.
-    # Formule : tolerance = base_tolerance × (60 / local_bpm)
-    # À 120 BPM → tolerance = 0.04s (plus serré, notes plus précises)
-    # À 60 BPM  → tolerance = 0.08s (plus large, rubato permis)
-    base_onset_tolerance = ensemble_config.get('onset_tolerance', 0.04)
-    base_pitch_tolerance = ensemble_config.get('pitch_tolerance', 1)
-    min_votes = ensemble_config.get('min_votes', 2)
-    velocity_aggregation = ensemble_config.get('velocity_aggregation', 'weighted_mean')
-    duration_aggregation = ensemble_config.get('duration_aggregation', 'median')
-    
-    # Fonction helper pour calculer le tolérance adaptatif
-    def _adaptive_onset_tolerance(bpm: float) -> float:
-        """Retourne le onset_tolerance adapté au BPM local."""
-        if bpm <= 0:
-            return base_onset_tolerance
-        # Facteur d'adaptation : proportionnel à la durée d'un beat
-        beat_duration = 60.0 / bpm  # durée d'un beat en secondes
-        # Le tolérance est ~4% de la durée d'un beat (max 0.1s, min 0.02s)
-        tolerance = max(0.02, min(0.10, beat_duration * 0.04))
-        return tolerance
-    
-    # Exécuter chaque modèle
-    all_model_results = {}
-    model_functions = {
-        'piano_transcription': run_piano_transcription,
-        'basic_pitch': run_basic_pitch,
-        'transkun': run_transkun,
-        'hft': lambda p, o: __import__('run_hft', fromlist=['run_hft']).run_hft(p, o),
-        'mt3': run_mt3,
-    }
-    
-    for model_cfg in models_config:
-        model_name = model_cfg['name']
-        if model_name not in model_functions:
-            print(f"[Ensemble] ⚠️ Modèle '{model_name}' non disponible, ignoré")
-            continue
-            
-        print(f"[Ensemble] Exécution du modèle: {model_name} (poids: {model_cfg['weight']})")
-        try:
-            model_options = options.copy()
-            note_events, midi_data, pedal_intervals = model_functions[model_name](audio_path, model_options)
-            all_model_results[model_name] = {
-                'notes': note_events,
-                'midi': midi_data,
-                'pedal': pedal_intervals,
-                'weight': model_cfg['weight'],
-                'onset_weight': model_cfg.get('onset_weight', 1.0),
-                'pitch_weight': model_cfg.get('pitch_weight', 1.0),
-                'duration_weight': model_cfg.get('duration_weight', 1.0),
-            }
-            print(f"[Ensemble]   → {len(note_events)} notes détectées")
-        except Exception as e:
-            print(f"[Ensemble] ⚠️ Erreur modèle {model_name}: {e}")
-            continue
-    
-    if not all_model_results:
-        raise RuntimeError("Aucun modèle n'a réussi à transcrire l'audio")
-    
-    # ── FUSION PAR VOTE PONDÉRÉ ──────────────────────────────────────────────
-    print(f"[Ensemble] Fusion de {len(all_model_results)} modèles...")
-    
-    # Collecter toutes les notes de tous les modèles
-    all_notes = []  # liste de (onset, pitch, duration, velocity, model_name, model_weight, onset_w, pitch_w, dur_w)
-    for model_name, result in all_model_results.items():
-        w = result['weight']
-        ow = result['onset_weight']
-        pw = result['pitch_weight']
-        dw = result['duration_weight']
-        for note in result['notes']:
-            onset, pitch, duration, velocity = note
-            all_notes.append((onset, pitch, duration, velocity, model_name, w, ow, pw, dw))
-    
-    if not all_notes:
-        raise RuntimeError("Aucune note détectée par aucun modèle")
-    
-    # P6.1 : Calculer un BPM moyen pour adapter le tolérance
-    onsets = [n[0] for n in all_notes]
-    avg_bpm = max(40, min(250, display_bpm if 'display_bpm' in locals() else 120))
-    adaptive_tolerance = _adaptive_onset_tolerance(avg_bpm)
-    adaptive_pitch_tolerance = base_pitch_tolerance
-    
-    print(f"[Ensemble] P6.1 : onset_tolerance adaptatif = {adaptive_tolerance:.4f}s (BPM≈{avg_bpm})")
-    
-    # Grouper les notes similaires (même onset ± tolérance adaptatif, même pitch ± tolérance)
-    # Algorithme: clustering simple par onset puis pitch
-    all_notes.sort(key=lambda x: (x[0], x[1]))  # trier par onset puis pitch
-    
-    clusters = []
-    for note in all_notes:
-        onset, pitch, duration, velocity, mname, mw, mow, mpw, mdw = note
-        
-        # Chercher un cluster existant compatible
-        assigned = False
-        for cluster in clusters:
-            # Vérifier si compatible avec le représentant du cluster
-            rep_onset = cluster['rep_onset']
-            rep_pitch = cluster['rep_pitch']
-            
-            if abs(onset - rep_onset) <= adaptive_tolerance and abs(pitch - rep_pitch) <= adaptive_pitch_tolerance:
-                cluster['notes'].append(note)
-                assigned = True
-                break
-        
-        if not assigned:
-            # Nouveau cluster
-            clusters.append({
-                'rep_onset': onset,
-                'rep_pitch': pitch,
-                'notes': [note]
-            })
-    
-    # Filtrer les clusters par nombre minimum de votes
-    valid_clusters = [c for c in clusters if len(c['notes']) >= min_votes]
-    print(f"[Ensemble] {len(clusters)} clusters formés, {len(valid_clusters)} retenus (min_votes={min_votes})")
-    
-    # P6.2 : Marquer les clusters "incertains" (1 seul modèle, confiance faible)
-    # Un cluster avec 1 seul vote est "incertain" — on ajoute un flag uncertainty
-    uncertain_clusters = [c for c in valid_clusters if len(c['notes']) < min_votes * 2]
-    if uncertain_clusters:
-        print(f"[Ensemble] P6.2 : {len(uncertain_clusters)} cluster(s) incertain(s) détecté(s)")
-    
-    # P6.2 : Agréger chaque cluster valide + flag "incertain"
-    fused_notes = []       # notes (onset, pitch, duration, velocity)
-    uncertain_notes = set()  # indices de notes incertaines
-    for idx, cluster in enumerate(valid_clusters):
-        notes = cluster['notes']
-        is_uncertain = len(notes) < min_votes  # P6.2 : < min_votes = un seul modèle
-        if is_uncertain:
-            print(f"[Ensemble] P6.2 : cluster {idx} incertain — 1 seul modèle, fallback activé")
-        
-        # Calculer les poids totaux
-        total_weight = sum(n[5] for n in notes)  # model weight
-        
-        # Onset: moyenne pondérée par onset_weight * model_weight
-        weighted_onset = sum(n[0] * n[6] * n[5] for n in notes) / sum(n[6] * n[5] for n in notes)
-        
-        # Pitch: vote majoritaire pondéré par pitch_weight * model_weight
-        pitch_votes = defaultdict(float)
-        for n in notes:
-            pitch_votes[n[1]] += n[7] * n[5]  # pitch_weight * model_weight
-        fused_pitch = max(pitch_votes.items(), key=lambda x: x[1])[0]
-        
-        # Durée: selon méthode configurée
-        if duration_aggregation == 'median':
-            durations = [n[2] for n in notes]
-            fused_duration = float(np.median(durations))
-        elif duration_aggregation == 'mean':
-            fused_duration = float(np.mean([n[2] for n in notes]))
-        elif duration_aggregation == 'weighted_mean':
-            fused_duration = sum(n[2] * n[8] * n[5] for n in notes) / sum(n[8] * n[5] for n in notes)
-        else:
-            fused_duration = float(np.median([n[2] for n in notes]))
-        
-        # Vélocité: selon méthode configurée
-        velocities = [n[3] for n in notes]
-        weights = [n[5] for n in notes]  # model weights
-        
-        if velocity_aggregation == 'max':
-            fused_velocity = max(velocities)
-        elif velocity_aggregation == 'mean':
-            fused_velocity = float(np.mean(velocities))
-        elif velocity_aggregation == 'weighted_mean':
-            fused_velocity = sum(v * w for v, w in zip(velocities, weights)) / sum(weights)
-        else:
-            fused_velocity = float(np.mean(velocities))
-        
-        fused_notes.append((
-            weighted_onset,
-            fused_pitch,
-            fused_duration,
-            int(round(fused_velocity)),
-            is_uncertain  # P6.2 : flag incertain ajouté en 5e élément
-        ))
-        if is_uncertain:
-            uncertain_notes.add(len(fused_notes) - 1)
-    
-    # Trier par onset (conserver le flag incertain en 5e position)
-    fused_notes.sort(key=lambda x: x[0])
-    
-    # Créer un objet MIDI fusionné (utiliser le MIDI du modèle principal comme base)
-    primary_model = max(all_model_results.items(), key=lambda x: x[1]['weight'])[0]
-    fused_midi = all_model_results[primary_model]['midi']
-    
-    # Mettre à jour le MIDI avec les notes fusionnées
-    if fused_midi:
-        # Supprimer les notes existantes et ajouter les fusionnées
-        for inst in fused_midi.instruments:
-            inst.notes.clear()
-        
-        for onset, pitch, duration, velocity in fused_notes:
-            note = pretty_midi.Note(
-                velocity=min(127, max(0, velocity)),
-                pitch=pitch,
-                start=onset,
-                end=onset + duration
-            )
-            # Ajouter au premier instrument (piano)
-            if fused_midi.instruments:
-                fused_midi.instruments[0].notes.append(note)
-            else:
-                # Créer un instrument piano par défaut
-                piano = pretty_midi.Instrument(program=0, is_drum=False, name='Piano')
-                piano.notes.append(note)
-                fused_midi.instruments.append(piano)
-    
-    dt = time.perf_counter() - t0
-    print(f"[Ensemble] Terminé en {dt:.2f}s — {len(fused_notes)} notes fusionnées")
-    # ── P5.4 : Agrégation multi-modèles pédale ────────────────────────────
-    # Fusionner les pédales détectées par tous les modèles disponibles
-    # en utilisant un vote pondéré (similaire à la fusion des notes).
-    all_pedal_intervals = []
-    for model_name, result in all_model_results.items():
-        model_pedals = result.get('pedal', [])
-        model_weight = result['weight']
-        for p_start, p_end in model_pedals:
-            all_pedal_intervals.append((p_start, p_end, model_weight, model_name))
-    
-    # Clustering des pédales similaires (tolérance 50ms)
-    pedal_tolerance = 0.05
-    fused_pedals = []
-    for p_start, p_end, weight, mname in all_pedal_intervals:
-        assigned = False
-        for i, (fp_start, fp_end, fp_weight, fp_models) in enumerate(fused_pedals):
-            if abs(p_start - fp_start) <= pedal_tolerance and abs(p_end - fp_end) <= pedal_tolerance:
-                # Fusionner : augmenter le poids
-                fused_pedals[i] = (
-                    (fp_start + p_start) / 2,
-                    (fp_end + p_end) / 2,
-                    fp_weight + weight,
-                    fp_models + [mname],
-                )
-                assigned = True
-                break
-        if not assigned:
-            fused_pedals.append((p_start, p_end, weight, [mname]))
-    
-    # Filtrer : ne garder que les pédales votées par au moins min_votes modèles
-    min_pedal_votes = min(2, len(all_model_results)) if len(all_model_results) > 1 else 1
-    fused_pedals = [
-        (ps, pe, w, models) for ps, pe, w, models in fused_pedals
-        if len(models) >= min_pedal_votes
-    ]
-    fused_pedals = [(ps, pe) for ps, pe, _, _ in fused_pedals]
-    
-    print(f"[Ensemble] P5.4 : {len(fused_pedals)} pédales fusionnées (multi-modèles)")
-    
-    # P6.2 : Retourner aussi uncertain_indices dans un wrapper
-    class _FusedResult:
-        def __init__(self, notes, midi, pedals, uncertain_ids):
-            self.notes = notes
-            self.midi = midi
-            self.pedals = pedals
-            self.uncertain_ids = uncertain_ids
-    return _FusedResult(fused_notes, fused_midi, fused_pedals, uncertain_notes)
+# La logique complète de transcription ensemble est centralisée dans
+# ensemble_voter.py pour éviter la duplication de code.
+# Voir ensemble_voter.run_ensemble_transcription() et detect_available_ensemble_models().
 
 
 def transcribe_audio(audio_path, options=None, warnings=None):
@@ -502,10 +149,11 @@ def transcribe_audio(audio_path, options=None, warnings=None):
     pedal_intervals = []
     uncertain_indices = None  # P6.2 : indices des notes incertaines (ensemble mode)
   
-    # Ensemble Voting (multi-modèles)
+    # Ensemble Voting (multi-modèles) — délégué à ensemble_voter.py
     if transcriber_choice == 'ensemble':
+        from ensemble_voter import run_ensemble_transcription
         fused_result = run_ensemble_transcription(audio_path, options)
-        # fused_result est un _FusedResult avec attributs .notes, .midi, .pedals, .uncertain_ids
+        # fused_result est un FusedResult avec attributs .notes, .midi, .pedals, .uncertain_ids
         note_events = fused_result.notes
         midi_data = fused_result.midi
         pedal_intervals = fused_result.pedals
@@ -624,7 +272,26 @@ def run_transkun(audio_path, options):
         
         # Trier par ordre chronologique
         note_events.sort(key=lambda x: x[0])
-        print(f"[Transcriber] Transkun : {len(note_events)} notes extraites du MIDI")
+
+        # [FIX] Extraire la pédale (CC64 = sustain) depuis le MIDI Transkun.
+        # value >= 64 -> pédale enfoncée ; < 64 -> relâchée.
+        # Auparavant : return ... , [] -> la pédale était systématiquement perdue.
+        pedal_intervals = []
+        for instrument in midi_data.instruments:
+            pedal_down = None
+            cc64 = sorted(
+                [c for c in instrument.control_changes if c.number == 64],
+                key=lambda c: c.time
+            )
+            for cc in cc64:
+                if cc.value >= 64 and pedal_down is None:
+                    pedal_down = cc.time
+                elif cc.value < 64 and pedal_down is not None:
+                    pedal_intervals.append((pedal_down, cc.time))
+                    pedal_down = None
+        pedal_intervals.sort(key=lambda p: p[0])
+        print(f"[Transcriber] Transkun : {len(note_events)} notes, {len(pedal_intervals)} pédales extraites du MIDI")
+
         
         return note_events, midi_data, []
         
@@ -890,10 +557,11 @@ def run_piano_transcription(audio_path, options):
     # =========================================================
     onset_threshold = float(options.get('onset_threshold', 0.3))
     frame_threshold = float(options.get('frame_threshold', 0.1))
+    offset_threshold = float(options.get('offset_threshold', 0.3))
     transcriber.onset_threshold   = onset_threshold
     transcriber.frame_threshold   = frame_threshold
-    transcriber.offset_threshod   = onset_threshold  # cohérent avec onset
-    print(f"[Piano] Seuils appliqués : onset={onset_threshold:.2f}, frame={frame_threshold:.2f}")
+    transcriber.offset_threshold  = offset_threshold  # [FIX] typo corrigée + découplé de l'onset (défaut 0.3)
+    print(f"[Piano] Seuils appliqués : onset={onset_threshold:.2f}, frame={frame_threshold:.2f}, offset={offset_threshold:.2f}")
 
     # =========================================================
     # LOAD AUDIO (CPU)
@@ -1411,6 +1079,24 @@ class TranscriptionPipeline:
         except Exception as e:
             print(f"[Pipeline] ⚠ note_filter.filter_ghost_notes indisponible ({e})")
         
+        # ── Filtrage harmonique (piano classique) ────────────────────────────
+        # Supprime les "notes fantômes" causées par les harmoniques
+        # (une note grave jouée avec pédale crée des harmoniques à l'octave/quinte)
+        harmonic_method = options.get('harmonic_filter', 'classical')
+        if harmonic_method and harmonic_method != 'off':
+            try:
+                from harmonic_filter import filter_ghost_notes as harmonic_filter
+                before_count = len(notes_dict)
+                notes_dict = harmonic_filter(notes_dict, options, method=harmonic_method)
+                after_count = len(notes_dict)
+                removed = before_count - after_count
+                if removed > 0:
+                    print(f"[Pipeline] 🎹 Filtrage harmonique ({harmonic_method}): {before_count} → {after_count} notes ({removed} supprimés)")
+                else:
+                    print(f"[Pipeline] 🎹 Filtrage harmonique ({harmonic_method}): {after_count} notes (rien supprimé)")
+            except Exception as e:
+                print(f"[Pipeline] ⚠ harmonic_filter indisponible ({e})")
+        
         # ── P5.1 : apply_pedal_aware_shortening AVANT quantification ─────────
         # On raccourcit les notes en secondes AVANT de quantifier en beats.
         # Si on le faisait après quantification, les durées seraient déjà
@@ -1495,6 +1181,7 @@ class TranscriptionPipeline:
                 enable_rubato=options.get('enable_rubato', False),
                 enable_triplets=options.get('enable_triplets', False),
                 tempo_map=tm,
+                quantization_sensitivity=options.get('quantization_sensitivity'),
             )
             quantizer_method = 'tempo_quantizer (V4)'
             print(f"[Pipeline] <<< Quantizer V4 OK ({quantization_level})", flush=True)
@@ -1513,6 +1200,7 @@ class TranscriptionPipeline:
                     enable_rubato=options.get('enable_rubato', False),
                     enable_triplets=options.get('enable_triplets', False),
                     tempo_map=tm,
+                    quantization_sensitivity=options.get('quantization_sensitivity'),
                 )
                 quantizer_method = 'quantizer (V3 fallback)'
                 print(f"[Pipeline] <<< Quantizer V3 OK", flush=True)
@@ -1653,7 +1341,8 @@ class TranscriptionPipeline:
 
         # P1.2 : Export MIDI — erreur critique si échec
         try:
-            midi_parser.score_to_midi(score_data, midi_path)
+            from midi_parser import score_to_midi
+            score_to_midi(score_data, midi_path)
         except Exception as e:
             if strict_mode:
                 pipeline_warnings.add_critical('midi_export', f'Export MIDI en échec : {e}')

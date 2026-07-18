@@ -171,6 +171,36 @@ ornaments:
   mordent_max_duration: 0.2
 
 # ─────────────────────────────────────────────────────────────────────────────
+# FILTRAGE HARMONIQUE (suppression des notes fantômes)
+# ─────────────────────────────────────────────────────────────────────────────
+# Supprime les harmoniques causées par la pédale forte du piano.
+# Une note grave jouée avec pédale crée des harmoniques à l'octave (+12) et quinte (+7).
+# Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.
+harmonic_filter:
+  enabled: false
+  modes:
+    off:
+      description: "Filtrage désactivé"
+    basic:
+      description: "Filtre simple (octave + quinte)"
+      intervals: [12, 7]
+      velocity_threshold: 60
+      time_window: 0.05
+    classical:
+      description: "Recommandé pour Chopin, Debussy, musique classique"
+      intervals: [12, 7, 5, 24]
+      velocity_threshold: 50
+      time_window: 0.05
+      register_protection: true
+    aggressive:
+      description: "Pour partitions très complexes (mazurkas, nocturnes)"
+      intervals: [12, 7, 5, 24, 19]
+      velocity_threshold: 40
+      time_window: 0.08
+      register_protection: true
+      harmonic_chain: true
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GESTION MATÉRIEL (GPU/CPU)
 # ─────────────────────────────────────────────────────────────────────────────
 device:

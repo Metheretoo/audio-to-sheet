@@ -17,11 +17,15 @@ from functools import wraps
 from flask import Flask, request, jsonify, Response, send_file, send_from_directory
 from flask_cors import CORS
 
-# Imports locaux
-from backend.config import get_config, AppConfig
-from backend.device_manager import get_device_manager, print_device_summary
-from backend.model_cache import get_model_cache
-from backend.pipeline import (
+# Imports locaux (legacy/old/ — fichiers obsolètes déplacés)
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'old'))
+
+from config import get_config, AppConfig
+from device_manager import get_device_manager, print_device_summary
+from model_cache import get_model_cache
+from pipeline import (
     AsyncPipeline,
     SSEPipeline,
     PipelineProgress,

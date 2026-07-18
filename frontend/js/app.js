@@ -177,8 +177,25 @@ function initThresholdSlider() {
   const display = document.getElementById('threshold-display');
   if (!slider || !display) return;
   slider.addEventListener('input', () => {
-    display.textContent = parseFloat(slider.value).toFixed(2);
+    display.textContent = sensitivityToOnset(parseFloat(slider.value)).toFixed(2);
   });
+}
+
+/**
+ * Position du slider (0..1) -> seuil d'onset réel.
+ *
+ * 0.00 = très sensible (0.20)
+ * 0.50 = normal (0.50)
+ * 1.00 = très strict (0.85)
+ */
+function sensitivityToOnset(position) {
+    position = Math.max(0, Math.min(1, Number(position)));
+
+    const MIN = 0.20;
+    const MAX = 0.85;
+
+    // Courbe douce (plus de précision autour du milieu)
+    return +(MIN + (MAX - MIN) * Math.pow(position, 1.35)).toFixed(2);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -220,6 +237,18 @@ function initTranscriptionOptions() {
     if (radio) radio.checked = true;
   }
 
+  // Helper pour définir le filtrage harmonique
+  function setHarmonicFilterValue(val) {
+    const sel = document.getElementById('harmonic-filter');
+    if (sel && val) sel.value = val;
+    // Mettre à jour le label d'affichage
+    const display = document.getElementById('harmonic-filter-display');
+    if (display) {
+      const labels = { off: 'Désactivé', basic: 'Basique', classical: 'Classique', aggressive: 'Agressif' };
+      display.textContent = labels[val] || 'Classique';
+    }
+  }
+
   function applyPreset(presetName) {
     presetBtns.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.preset === presetName);
@@ -244,7 +273,8 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = false;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (thresholdSlider) thresholdSlider.value = 0.50;
+      if (thresholdSlider) thresholdSlider.value = 1;
+      setHarmonicFilterValue('off');
     } else if (presetName === 'equilibre') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -258,7 +288,8 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (thresholdSlider) thresholdSlider.value = 0.50;
+      if (thresholdSlider) thresholdSlider.value = 0.55;
+      setHarmonicFilterValue('off');
     } else if (presetName === 'classique') {
       setTranscriberValue('transkun');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -270,7 +301,8 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
-      if (thresholdSlider) thresholdSlider.value = 0.85;
+      if (thresholdSlider) thresholdSlider.value = 0.33;
+      setHarmonicFilterValue('classical');
     } else if (presetName === 'studio') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = true;
@@ -284,7 +316,8 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
-      if (thresholdSlider) thresholdSlider.value = 0.50;
+      if (thresholdSlider) thresholdSlider.value = 0.55;
+      setHarmonicFilterValue('classical');
     } else if (presetName === 'jazz') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -298,14 +331,29 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (thresholdSlider) thresholdSlider.value = 0.50;
+      if (thresholdSlider) thresholdSlider.value = 0.67;
+      setHarmonicFilterValue('off');
+    } else if (presetName === 'precision') {
+      setTranscriberValue('transkun');
+      if (useDemucsCb) useDemucsCb.checked = true;
+      setQuantizationValue('standard');
+      if (removeShortCb) removeShortCb.checked = false;
+      if (mergeNearCb) mergeNearCb.checked = false;
+      if (splitHandsCb) splitHandsCb.checked = true;
+      if (detectTempoCb) detectTempoCb.checked = true;
+      if (detectKeyCb) detectKeyCb.checked = true;
+      if (enableRubato) enableRubato.checked = true;
+      if (enableTriplets) enableTriplets.checked = true;
+      if (thresholdSlider) thresholdSlider.value = 0.33;
+      setHarmonicFilterValue('aggressive');
     }
 
     const display = document.getElementById('threshold-display');
     if (display && thresholdSlider) {
-      display.textContent = parseFloat(thresholdSlider.value).toFixed(2);
+      display.textContent = sensitivityToOnset(parseFloat(thresholdSlider.value)).toFixed(2);
     }
     toggleManualFields();
+    updateQuantizationSensitivitySlider();
   }
 
   function toggleManualFields() {
@@ -317,10 +365,25 @@ function initTranscriptionOptions() {
       const tempoInput = document.getElementById('tempo-override');
       if (tempoInput && disabled) tempoInput.value = '';
     }
+    
+    // Griser le slider "Sensibilité de détection" quand Transkun est sélectionné
+    // (inopérant car Transkun utilise ses propres seuils internes)
+    const onsetSlider = document.getElementById('onset-threshold');
+    const onsetLabel = document.getElementById('onset-threshold-label');
+    const isTranskun = getTranscriberValue() === 'transkun';
+    if (onsetSlider) {
+      onsetSlider.disabled = isTranskun;
+      onsetSlider.title = isTranskun ? 'Inopérant avec Transkun (utilise ses propres seuils internes)' : 'Ajuste la sensibilité de détection des notes';
+    }
+    if (onsetLabel) {
+      onsetLabel.style.opacity = isTranskun ? '0.5' : '1';
+    }
   }
 
   const showPedalCb = document.getElementById('show-pedal');
   const showChordsCbToggle = document.getElementById('show-chords');
+  const qsSlider = document.getElementById('quantization-sensitivity');
+  const qsDisplay = document.getElementById('quantization-sensitivity-display');
 
   function refreshDisplayToggles() {
     if (!renderer) return;
@@ -331,11 +394,34 @@ function initTranscriptionOptions() {
   if (showPedalCb) showPedalCb.addEventListener('change', refreshDisplayToggles);
   if (showChordsCbToggle) showChordsCbToggle.addEventListener('change', refreshDisplayToggles);
 
+  function updateQuantizationSensitivitySlider() {
+    if (!qsSlider || !qsDisplay) return;
+    const quantLevel = getQuantizationValue();
+    if (quantLevel === 'none') {
+      qsSlider.disabled = true;
+      qsSlider.value = 0;
+      qsDisplay.textContent = 'N/A';
+    } else {
+      qsSlider.disabled = false;
+      if (qsSlider.value === '' || qsSlider.value === null) {
+        qsSlider.value = 0.5;
+      }
+      qsDisplay.textContent = parseFloat(qsSlider.value).toFixed(2);
+    }
+  }
+
+  if (qsSlider) {
+    qsSlider.addEventListener('input', () => {
+      qsDisplay.textContent = parseFloat(qsSlider.value).toFixed(2);
+    });
+  }
+
   presetBtns.forEach(btn => btn.addEventListener('click', () => applyPreset(btn.dataset.preset)));
 
   const allControls = [
     useDemucsCb, removeShortCb, minNoteInput, mergeNearCb, mergeGapInput,
-    splitHandsCb, detectTempoCb, detectKeyCb, thresholdSlider, enableRubato, enableTriplets
+    splitHandsCb, detectTempoCb, detectKeyCb, thresholdSlider, enableRubato, enableTriplets,
+    document.getElementById('harmonic-filter')
   ];
   allControls.forEach(ctrl => {
     if (!ctrl) return;
@@ -344,8 +430,8 @@ function initTranscriptionOptions() {
       ctrl.addEventListener('input', () => { checkPresetMatch(); toggleManualFields(); });
     }
   });
-  document.querySelectorAll('input[name="transcriber"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); }));
-  document.querySelectorAll('input[name="quantization"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); }));
+  document.querySelectorAll('input[name="transcriber"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); updateQuantizationSensitivitySlider(); }));
+  document.querySelectorAll('input[name="quantization"]').forEach(r => r.addEventListener('change', () => { checkPresetMatch(); toggleManualFields(); updateQuantizationSensitivitySlider(); }));
 
   function checkPresetMatch() {
     const ct = getTranscriberValue();
@@ -373,6 +459,9 @@ function initTranscriptionOptions() {
     } else if (ct === 'piano_transcription' && cd && cq === 'heavy' && !crs && !cmn && csh && cdt && cdk && !crb && !ctr && Math.abs(ctH - 0.50) < 0.01) {
       presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'jazz'));
       setHq(false);
+    } else if (ct === 'transkun' && cd && cq === 'standard' && !crs && !cmn && csh && cdt && cdk && crb && ctr && Math.abs(ctH - 0.33) < 0.01) {
+      presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'precision'));
+      setHq(false);
     } else {
       presetBtns.forEach(b => b.classList.remove('active'));
       setHq(false);
@@ -392,7 +481,7 @@ function subscribeToProgress(jobId) {
     currentPollingTimer = null;
   }
 
-  console.log('[Polling] Début du polling pour job', jobId);
+//  console.log('[Polling] Début du polling pour job', jobId);
   setLoadingStep('🔄 Vérification de la progression…');
 
   currentPollingTimer = setInterval(async () => {
@@ -462,12 +551,11 @@ async function startTranscription(file) {
 
   const formData = new FormData();
   formData.append('audio', file, file.name);
-  formData.append('onset_threshold', document.getElementById('onset-threshold').value);
+  formData.append('onset_threshold', sensitivityToOnset(parseFloat(document.getElementById('onset-threshold').value)));
   formData.append('frame_threshold', document.getElementById('frame-threshold')?.value || '0.1');
   formData.append('offset_threshold', document.getElementById('offset-threshold')?.value || '0.3');
   formData.append('transcriber', document.querySelector('input[name="transcriber"]:checked')?.value || 'piano_transcription');
-  formData.append('quantization', document.querySelector('input[name="quantization"]:checked')?.value || 'standard');
-  formData.append('use_demucs', document.getElementById('use-demucs')?.checked ? 'true' : 'false');
+  formData.append('quantization_level', document.querySelector('input[name="quantization"]:checked')?.value || 'standard');  formData.append('use_demucs', document.getElementById('use-demucs')?.checked ? 'true' : 'false');
   formData.append('remove_short_notes', document.getElementById('remove-short-notes')?.checked ? 'true' : 'false');
   formData.append('minimum_note_duration', document.getElementById('min-note-duration')?.value || '50');
   formData.append('merge_near_notes', document.getElementById('merge-near-notes')?.checked ? 'true' : 'false');
@@ -476,9 +564,14 @@ async function startTranscription(file) {
   formData.append('detect_tempo', document.getElementById('detect-tempo')?.checked ? 'true' : 'false');
   formData.append('detect_meter', document.getElementById('detect-meter')?.checked ? 'true' : 'false');
   formData.append('detect_key', document.getElementById('detect-key')?.checked ? 'true' : 'false');
-  formData.append('enable_rubato', document.getElementById('enable-rubato')?.checked ? 'true' : 'false');
-  formData.append('enable_triplets', document.getElementById('enable-triplets')?.checked ? 'true' : 'false');
-  formData.append('strict_mode', document.getElementById('strict-mode')?.checked ? 'true' : 'false');
+   formData.append('enable_rubato', document.getElementById('enable-rubato')?.checked ? 'true' : 'false');
+   formData.append('enable_triplets', document.getElementById('enable-triplets')?.checked ? 'true' : 'false');
+   formData.append('strict_mode', document.getElementById('strict-mode')?.checked ? 'true' : 'false');
+   const qsSlider = document.getElementById('quantization-sensitivity');
+   if (qsSlider && qsSlider.value !== '') {
+     formData.append('quantization_sensitivity', qsSlider.value);
+   }
+  formData.append('harmonic_filter', document.getElementById('harmonic-filter')?.value || 'classical');
   formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
   formData.append('key_sig', document.getElementById('key-sig-toolbar')?.value || 'C');
 

@@ -75,6 +75,7 @@
             <button type="button" class="preset-btn" id="preset-classique" data-preset="classique" title="Mode Classique (Sensibilité max) :&#10;• Transcripteur : Piano Transcription&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Légère (arrondi à la triple-croche)&#10;• Seuil détection : 0.25 (très sensible)&#10;→ Idéal pour : Musique classique, passages pianissimo, notes très douces. Capte le maximum de notes au risque de quelques fausses détections.">Classique</button>
             <button type="button" class="preset-btn" id="preset-studio" data-preset="studio" title="Mode Studio (Précision) :&#10;• Mode Haute Qualité Piano : Activé&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Légère (arrondi à la triple-croche)&#10;→ Idéal pour : Musique classique, jazz ou jeu expressif. Préserve les micro-rythmes (rubato, arpèges rapides) au prix d'une partition plus dense.">Studio</button>
             <button type="button" class="preset-btn" id="preset-jazz" data-preset="jazz" title="Mode Jazz (Simplifié) :&#10;• Transcripteur : Piano Transcription&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Forte (arrondi à la croche)&#10;→ Idéal pour : Morceaux swing ou à rubato que l'on veut simplifier pour la lecture sans petites subdivisions inutiles.">Jazz</button>
+            <button type="button" class="preset-btn" id="preset-precision" data-preset="precision" title="Mode Precision (Transcription classique complexe) :&#10;• Transcripteur : Transkun&#10;• Isolation (Demucs) : Activée&#10;• Quantisation : Précision (grille 1/32 beat, snap très doux 0.10)&#10;• Rubato + Triolets activés&#10;→ Idéal pour : Partitions classiques complexes avec minimum de notes en trop. Sensibilité de quantification recommandée : 0.2-0.4.">Precision</button>
           </div>
         </div>
 
@@ -161,20 +162,50 @@
   </div>
 </div>
 
-<!-- Options avancées -->
-<div class="setting-item">
-  <span class="setting-label">Options expressives</span>
-  <div class="checkbox-group">
-    <label class="checkbox-label-premium" title="Préserve l'expressivité (rubato, arpèges, notes inégales). Partition plus dense mais fidèle au jeu original.">
-      <input type="checkbox" id="enable-rubato" />
-      <span>Rubato</span>
-    </label>
-    <label class="checkbox-label-premium" title="Active la détection et l'écriture des triolets (3 notes dans le temps de 2).">
-      <input type="checkbox" id="enable-triplets" />
-      <span>Triolets</span>
-    </label>
-  </div>
-</div>
+            <!-- Options avancées -->
+            <div class="setting-item">
+              <span class="setting-label">Options expressives</span>
+              <div class="checkbox-group">
+                <label class="checkbox-label-premium" title="Préserve l'expressivité (rubato, arpèges, notes inégales). Partition plus dense mais fidèle au jeu original.">
+                  <input type="checkbox" id="enable-rubato" />
+                  <span>Rubato</span>
+                </label>
+                <label class="checkbox-label-premium" title="Active la détection et l'écriture des triolets (3 notes dans le temps de 2).">
+                  <input type="checkbox" id="enable-triplets" />
+                  <span>Triolets</span>
+                </label>
+              </div>
+            </div>
+
+             <!-- Filtrage harmonique (piano classique) -->
+             <div class="setting-item" title="Filtre les 'notes fantômes' causées par les harmoniques.&#10;• Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons) et quinte (+7).&#10;• Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.&#10;• Le filtrage les supprime en se basant sur la vélocité et la simultanéité.&#10;• Classique : recommandé pour Chopin, Debussy, etc.&#10;• Agressif : pour partitions très complexes (mazurkas, nocturnes).">
+               <label class="setting-label">
+                 🎹 Filtrage harmonique
+                 <span id="harmonic-filter-display" class="threshold-val">Classique</span>
+               </label>
+               <select id="harmonic-filter" class="input-field select-field" aria-label="Filtrage harmonique">
+                 <option value="off" selected>Désactivé</option>
+                 <option value="basic">Basique</option>
+                 <option value="classical">Classique (recommandé)</option>
+                 <option value="aggressive">Agressif</option>
+               </select>
+               <small class="setting-hint">Supprime les harmoniques fantômes (notes en trop dues à la pédale)</small>
+             </div>
+
+             <!-- Sensibilité de quantification -->
+             <div class="setting-item" title="Contrôle la précision de la quantification rythmique (l'arrondi des notes sur la grille).&#10;• 0.0 = Quantification minimale : pas de snap, timings bruts préservés.&#10;• 0.5 = Quantification moyenne : snap modéré.&#10;• 1.0 = Quantification forte : snap agressif sur la grille.&#10;• Utilisé EN PLUS du niveau de quantification (Légère/Standard/Forte) pour un contrôle plus fin.">
+              <label for="quantization-sensitivity" class="setting-label">
+                Sensibilité de quantification
+                <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
+              </label>
+              <input type="range" id="quantization-sensitivity" class="range-field" min="0" max="1" step="0.01"
+                value="" disabled aria-label="Sensibilité de quantification" />
+              <div class="range-labels">
+                <span>Minimale</span>
+                <span>Forte</span>
+              </div>
+              <small class="setting-hint">Réglage fin en complément du niveau de quantification (Légère/Standard/Forte)</small>
+            </div>
 
 <!-- Affichage de la partition (togglable sans re-transcrire) -->
 <div class="setting-item">

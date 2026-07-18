@@ -38,6 +38,54 @@ class QuantizerConfig:
     min_duration_beats: float = 0.25      # durée minimale notée
     merge_threshold_beats: float = 0.1    # fusion notes répétées (0 = jamais)
     allow_triplets: bool = False
+    min_note_gap_beats: float = 0.0       # écart min entre notes snapées (0 = désactivé)
+
+
+def _sensitivity_to_config(base: QuantizerConfig, sensitivity: float) -> QuantizerConfig:
+    """
+    Mappe un sensitivity continu [0.0-1.0] sur les paramètres du quantizer.
+    
+    - 0.0  → quantification minimale (pas de snap, grille très fine)
+    - 0.5  → quantification moyenne (snap modéré, grille fine)
+    - 1.0  → quantification forte (snap agressif, grille grossière)
+    
+    Le mapping est non-linéaire pour donner plus de contrôle dans la zone
+    0.3-0.7 où les artéfacts de transcription sont les plus critiques.
+    """
+    # Clamp dans [0, 1]
+    s = max(0.0, min(1.0, sensitivity))
+    
+    # Mapping non-linéaire : courbe en S pour plus de contrôle au milieu
+    if s < 0.5:
+        # Zone basse sensibilité : curve douce
+        t = s / 0.5  # normalisé [0, 1] dans cette zone
+        t_curve = t * t * (3 - 2 * t)  # smoothstep
+    else:
+        # Zone haute sensibilité : curve plus raide
+        t = (s - 0.5) / 0.5  # normalisé [0, 1] dans cette zone
+        t_curve = t * t * (3 - 2 * t)
+    
+    # Grid div : de 64 (très fin) à 4 (grossier)
+    # Plus s est élevé, plus grid_div est petit (grille grossière)
+    grid_div = max(4, min(64, int(round(64 - t_curve * 60))))
+    
+    # Snap threshold : de 0.0 (désactivé) à 0.50 (agressif)
+    snap_threshold = t_curve * 0.50
+    
+    # Min duration : de 0.0625 (1/64) à 0.25 (1/16)
+    min_dur = 0.0625 + t_curve * 0.1875
+    
+    # Min note gap : de 0.05 (très serré) à 0.15 (plus espacé)
+    min_gap = 0.05 + t_curve * 0.10
+    
+    return QuantizerConfig(
+        grid_div=grid_div,
+        snap_threshold_ratio=snap_threshold,
+        min_duration_beats=min_dur,
+        merge_threshold_beats=0.0 if t_curve < 0.3 else 0.05 * t_curve,
+        allow_triplets=True,
+        min_note_gap_beats=min_gap,
+    )
 
 
 PRESETS = {
@@ -49,7 +97,14 @@ PRESETS = {
     'triplets':  QuantizerConfig(12, 0.35, 0.125,  0.00, True),
     # classique : grille double-croche + ternaire, ornements préservés,
     # zéro fusion, aimantation douce. La précision vient de la tempo map.
-    'classique': QuantizerConfig(8,  0.30, 0.125,  0.00, True),
+    # snap_threshold_ratio réduit à 0.15 (était 0.30) pour éviter la fusion
+    # de notes voisines qui sont à la limite de la grille.
+    'classique': QuantizerConfig(8,  0.15, 0.125,  0.00, True),
+    # NOUVEAU : preset "precision" pour transcription classique complexe.
+    # Grille très fine (1/32 beat), snap très doux, durée min 1/64.
+    # Idéal quand le transcriber (TruSinger/piano_transcription) fournit
+    # des timings précis et qu'on veut minimiser la destruction rythmique.
+    'precision': QuantizerConfig(32, 0.10, 0.0625, 0.00, True),
 }
 
 # durée en beats → (dur_str, dots)  [beat = noire]
@@ -126,9 +181,29 @@ def quantize_notes(
     quantization_level: str = 'standard',
     enable_rubato: bool = False,
     enable_triplets: bool = False,
+    quantization_sensitivity: float = None,  # NOUVEAU : contrôle continu [0.0-1.0]
 ) -> List[QuantizedNote]:
-    """Signature identique à quantizer.quantize_notes (drop-in)."""
-    cfg = PRESETS.get(quantization_level, PRESETS['standard'])
+    """
+    Signature étendue : quantization_sensitivity permet un réglage fin
+    de la sensibilité de quantification sans changer de preset.
+    
+    - quantization_sensitivity=None (défaut) : utilise le preset tel quel
+    - quantization_sensitivity=0.0 → quantification minimale
+    - quantization_sensitivity=0.5 → quantification moyenne
+    - quantization_sensitivity=1.0 → quantification forte
+    
+    Quand sensitivity est fourni, le preset sert de "base" mais les
+    paramètres sont ajustés par _sensitivity_to_config().
+    """
+    base_cfg = PRESETS.get(quantization_level, PRESETS['standard'])
+    
+    # Si sensitivity est fourni, appliquer le mapping continu
+    if quantization_sensitivity is not None:
+        cfg = _sensitivity_to_config(base_cfg, quantization_sensitivity)
+    else:
+        cfg = base_cfg
+    
+    # Override pour rubato : réduire le snap pour préserver le micro-timing
     if enable_rubato:
         cfg = replace(cfg, snap_threshold_ratio=min(cfg.snap_threshold_ratio, 0.20))
     if enable_triplets:

@@ -1,13 +1,91 @@
-"""audio-to-sheet music v3 — API Flask"""
+"""audio-to-sheet music v3 — API Flask avec Pydantic validation + SSE async"""
 import os
 import sys
 import uuid
 import tempfile
 import json
 import logging
+import threading
+import time
+from queue import Queue, Empty
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from transcriber import TranscriptionPipeline
+
+# ── Pydantic disponible ? ──────────────────────────────────────────────────────
+try:
+    from pydantic import BaseModel, Field, field_validator
+    from pydantic import ValidationError as PydanticValidationError
+    PYDANTIC_AVAILABLE = True
+except ImportError:
+    PYDANTIC_AVAILABLE = False
+
+# ── Pydantic models pour validation (chargement différé) ───────────────────────
+TranscriptionOptionsModel = None
+_validate_transcription_options = None
+_get_validation_summary = None
+
+def _init_pydantic_models():
+    """Initialise les modèles Pydantic si disponibles (chargement différé)."""
+    global TranscriptionOptionsModel, _validate_transcription_options, _get_validation_summary
+    if TranscriptionOptionsModel is not None:
+        return  # déjà initialisé
+    if not PYDANTIC_AVAILABLE:
+        return
+    try:
+        from pydantic import BaseModel, Field, field_validator
+        from typing import Optional, Literal
+
+        class TranscriptionOptionsModel(BaseModel):
+            transcriber: Literal['piano_transcription', 'basic_pitch', 'transkun', 'hft', 'mt3', 'ensemble'] = 'piano_transcription'
+            preset: Literal['standard', 'jazz', 'classical', 'beginner'] = 'standard'
+            use_demucs: bool = False
+            onset_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+            frame_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
+            offset_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+            minimum_note_duration: int = Field(default=50, ge=10, le=500)
+            time_sig: str = Field(default='4/4', pattern='^[0-9]+/[0-9]+$')
+            key_sig: str = Field(default='C', pattern='^[A-G][#b]?$')
+            detect_tempo: bool = True
+            detect_meter: bool = True
+            detect_key: bool = True
+            quantization_level: Literal['none', 'simple', 'standard', 'strict', 'classique', 'precision'] = 'standard'
+            remove_short_notes: bool = False
+            merge_near_notes: bool = False
+            merge_gap_ms: int = Field(default=30, ge=10, le=200)
+            split_hands: bool = False
+            enable_rubato: bool = False
+            enable_triplets: bool = False
+            quantization_sensitivity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+            harmonic_filter: Optional[str] = Field(default=None)  # 'basic', 'classical', 'aggressive'
+            strict_mode: bool = False
+            tempo: Optional[float] = Field(default=None, ge=40, le=300)
+
+        def validate_transcription_options(form_data: dict):
+            errors = []
+            try:
+                validated = TranscriptionOptionsModel(**form_data)
+                return validated.model_dump(exclude_unset=True), errors
+            except Exception as e:
+                if hasattr(e, 'errors'):
+                    for err in e.errors():
+                        field = '->'.join(str(p) for p in err.get('loc', []))
+                        msg = err.get('msg', str(err.get('ctx', {})))
+                        errors.append(f"  * {field}: {msg}")
+                else:
+                    errors.append(f"  Validation error: {str(e)}")
+                return None, errors
+
+        def get_validation_summary():
+            return (f"Schema validé: {len(TranscriptionOptionsModel.model_fields)} champs, "
+                    f"plages: onset[0-1], frame[0-1], offset[0-1], "
+                    "minimum_note_duration[10-500], merge_gap_ms[10-200], tempo[40-300]")
+
+        _validate_transcription_options = validate_transcription_options
+        _get_validation_summary = get_validation_summary
+        logger.info(f"[Pydantic] Modèle de validation chargé: {_get_validation_summary()}")
+    except Exception as e:
+        logger.warning(f"[Pydantic] Échec du chargement: {e}")
 
 # ── P1.5 : Vérification des prérequis au démarrage ─────────────────────────────
 from verify_prerequisites import verify_prerequisites
@@ -117,11 +195,11 @@ _jobs_lock = __import__('threading').Lock()
 
 
 def _cleanup_old_jobs():
-    """Nettoyer les jobs anciens de 5 minutes."""
+    """Nettoyer les jobs anciens de 15 minutes (le pipeline Transkun peut mettre 5-10 min)."""
     now = _time.time()
     with _jobs_lock:
         to_remove = [jid for jid, job in _transcription_jobs.items()
-                     if now - job['created_at'] > 300]
+                     if now - job['created_at'] > 900]
         for jid in to_remove:
             del _transcription_jobs[jid]
 
@@ -274,12 +352,66 @@ def transcribe():
             'error': f'Invalid file type. Allowed types: {", ".join(ALLOWED_EXTENSIONS)}'
         }), 400
 
-    # Créer job ID et dossier temporaire
+    # ── Extraire les options de la requête HTTP ───────────────────────
+    form_dict = {
+        'transcriber': request.form.get('transcriber', 'piano_transcription'),
+        'preset': request.form.get('preset', 'standard'),
+        'use_demucs': request.form.get('use_demucs', 'false') == 'true',
+        'onset_threshold': float(request.form.get('onset_threshold', 0.5)),
+        'frame_threshold': float(request.form.get('frame_threshold', '0.1')),
+        'offset_threshold': float(request.form.get('offset_threshold', '0.3')),
+        'minimum_note_duration': int(request.form.get('minimum_note_duration', 50)),
+        'time_sig': request.form.get('time_sig', '4/4'),
+        'key_sig': request.form.get('key_sig', 'C'),
+        'detect_tempo': request.form.get('detect_tempo', 'true') == 'true',
+        'detect_meter': request.form.get('detect_meter', 'true') == 'true',
+        'detect_key': request.form.get('detect_key', 'true') == 'true',
+        'quantization_level': request.form.get('quantization_level', 'standard'),
+        'remove_short_notes': request.form.get('remove_short_notes', 'false') == 'true',
+        'merge_near_notes': request.form.get('merge_near_notes', 'false') == 'true',
+        'merge_gap_ms': int(request.form.get('merge_gap_ms', 30)),
+        'split_hands': request.form.get('split_hands', 'false') == 'true',
+        'enable_rubato': request.form.get('enable_rubato', 'false') == 'true',
+        'enable_triplets': request.form.get('enable_triplets', 'false') == 'true',
+        'quantization_sensitivity': request.form.get('quantization_sensitivity'),
+        'strict_mode': request.form.get('strict_mode', 'false') == 'true',
+    }
+    # Convertir quantization_sensitivity en float ou None
+    qs = form_dict.get('quantization_sensitivity')
+    if qs and qs.strip():
+        try:
+            form_dict['quantization_sensitivity'] = float(qs)
+        except (ValueError, TypeError):
+            form_dict['quantization_sensitivity'] = None
+    else:
+        form_dict['quantization_sensitivity'] = None
+    tempo_override = request.form.get('tempo')
+    if tempo_override:
+        form_dict['tempo'] = float(tempo_override)
+
+    # ── Pydantic validation des options ───────────────────────────────
+    try:
+        if PYDANTIC_AVAILABLE and _validate_transcription_options:
+            validated_options, errors = _validate_transcription_options(form_dict)
+            if errors:
+                return jsonify({'error': 'Validation failed', 'details': errors}), 422
+            options = validated_options
+        else:
+            # Fallback sans validation Pydantic
+            options = form_dict
+    except FileNotFoundError as e:
+        logger.error(f"Fichier introuvable après validation : {e}")
+        return jsonify({'error': f'File not found: {str(e)}'}), 404
+    except Exception as e:
+        logger.exception("[API ERROR] Traceback complet :")
+        return jsonify({'error': f'Transcription failed: {str(e)}'}), 500
+
+    # ── Créer job ID et dossier temporaire ──────────────────────────────
     job_id = str(uuid.uuid4())[:8]
     upload_dir = get_temp_dir(f'audio_{job_id}')
     output_dir = get_temp_dir(f'output_{job_id}')
 
-    # Initialiser le job dans le stockage
+    # ── Initialiser le job dans le stockage ───────────────────────────
     with _jobs_lock:
         _transcription_jobs[job_id] = {
             'status': 'pending',
@@ -294,37 +426,6 @@ def transcribe():
         # Sauvegarder le fichier uploadé
         input_path = os.path.join(upload_dir, file.filename)
         file.save(input_path)
-
-        # Extraire les options de la requête HTTP
-        onset_threshold_val = float(request.form.get('onset_threshold', 0.5))
-        frame_threshold_val = float(request.form.get('frame_threshold', '0.1'))
-        offset_threshold_val = float(request.form.get('offset_threshold', '0.3'))
-
-        options = {
-            'transcriber': request.form.get('transcriber', 'piano_transcription'),
-            'preset': request.form.get('preset', 'standard'),
-            'use_demucs': request.form.get('use_demucs', 'false') == 'true',
-            'onset_threshold': onset_threshold_val,
-            'frame_threshold': frame_threshold_val,
-            'offset_threshold': offset_threshold_val,
-            'minimum_note_duration': int(request.form.get('minimum_note_duration', 50)),
-            'time_sig': request.form.get('time_sig', '4/4'),
-            'key_sig': request.form.get('key_sig', 'C'),
-            'detect_tempo': request.form.get('detect_tempo', 'true') == 'true',
-            'detect_meter': request.form.get('detect_meter', 'true') == 'true',
-            'detect_key': request.form.get('detect_key', 'true') == 'true',
-            'quantization_level': request.form.get('quantization_level', 'standard'),
-            'remove_short_notes': request.form.get('remove_short_notes', 'false') == 'true',
-            'merge_near_notes': request.form.get('merge_near_notes', 'false') == 'true',
-            'merge_gap_ms': int(request.form.get('merge_gap_ms', 30)),
-            'split_hands': request.form.get('split_hands', 'false') == 'true',
-            'enable_rubato': request.form.get('enable_rubato', 'false') == 'true',
-            'enable_triplets': request.form.get('enable_triplets', 'false') == 'true',
-            'strict_mode': request.form.get('strict_mode', 'false') == 'true',
-        }
-        tempo_override = request.form.get('tempo')
-        if tempo_override:
-            options['tempo'] = float(tempo_override)
 
         # Mettre à jour le statut du job
         with _jobs_lock:
@@ -488,6 +589,8 @@ def transcribe_result(job_id):
 @app.route('/api/cleanup', methods=['POST'])
 def cleanup():
     """Nettoie les fichiers temporiques."""
+    # Nettoyer aussi les jobs expirés
+    _cleanup_old_jobs()
     return jsonify({'status': 'ok'}), 200
 
 
