@@ -2,10 +2,9 @@
 - reprendre DIAGNOSTIC.md et faire le point de l'état actuel
 
 v5 :
-<<<<<<< HEAD
+
 - écrit des notes qui ne sont pas présentes dans le fichier midi
 - La sensibilité semble inégale main gauche / main droite. Je perds très vite la main gauche en l'augmentant, mais j'ai toujours trop de notes main droite. Pourquoi tant de notes parasites... Il faudrait peut-être pondérer les notes des fréquences graves afin de ne pas en supprimer autant qu'à la main droite ?
-=======
+
 - Détection 3-4, 4-4 -> régression. Désormais la Mazurka est détectée en 6-8 et non en 3-4
 - La sensibilité semble inégale main gauche / main droite. Je perds très vite la main gauche en l'augmentant, mais j'ai toujours trop de notes main droite. Pourquoi tant de notes parasites...
->>>>>>> dfb0254de005aa3467e14836d9a95fccb21ab84e
