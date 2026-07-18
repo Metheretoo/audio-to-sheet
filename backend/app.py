@@ -57,7 +57,20 @@ def _init_pydantic_models():
             enable_rubato: bool = False
             enable_triplets: bool = False
             quantization_sensitivity: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-            harmonic_filter: Optional[str] = Field(default=None)  # 'basic', 'classical', 'aggressive'
+            # Méthodes de filtrage harmonique disponibles :
+            #   basic       — octave + quinte uniquement (léger)
+            #   classical   — filtrage classique piano
+            #   classical-strong — seuils renforcés (Chopin, Nocturnes, Mazurkas)
+            #   pedal-aware — spécialisé harmoniques de pédale
+            #   aggressive  — très agressif (romantique)
+            #   ultra       — maximum (notes vélocité > 0.25 considérées)
+            #   off         — aucun filtrage
+            harmonic_filter: Optional[Literal['basic', 'classical', 'classical-strong', 'pedal-aware', 'aggressive', 'ultra', 'off']] = Field(default='classical-strong')  # défaut: classical-strong pour Chopin/Nocturnes/Mazurkas
+            # Paramètres manuels fins du filtrage harmonique (optionnels, remplacent les méthodes prédéfinies)
+            harmonic_velocity_ratio: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+            harmonic_protection_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+            harmonic_time_tolerance: Optional[float] = Field(default=None, ge=0.0, le=0.5)
+            harmonic_bass_threshold: Optional[int] = Field(default=None, ge=12, le=72)
             strict_mode: bool = False
             tempo: Optional[float] = Field(default=None, ge=40, le=300)
 
@@ -235,7 +248,7 @@ def _run_pipeline_thread(job_id, input_path, output_dir, options):
             input_path, 
             output_dir, 
             options=options,
-            progress_callback=_update_progress
+            progress_cb=_update_progress
         )
         output_files = {}
         if result.get('midi_path'):
@@ -398,6 +411,7 @@ def transcribe():
         'enable_rubato': request.form.get('enable_rubato', 'false') == 'true',
         'enable_triplets': request.form.get('enable_triplets', 'false') == 'true',
         'quantization_sensitivity': request.form.get('quantization_sensitivity'),
+        'harmonic_filter': request.form.get('harmonic_filter', 'classical-strong'),  # défaut: classical-strong pour Chopin/Nocturnes/Mazurkas
         'strict_mode': request.form.get('strict_mode', 'false') == 'true',
     }
     # Convertir quantization_sensitivity en float ou None
@@ -506,19 +520,35 @@ def transcribe_progress(job_id):
         import json
         import time
         import sys
+        import platform
         
+        last_status = None
         last_heartbeat = time.time()
+        
         while True:
             job = _transcription_jobs.get(job_id)
             if job is None:
                 # Job supprimé (expiration)
                 yield "event: done\ndata: " + json.dumps({"message": "Job expiré"}) + "\n\n"
-                sys.stdout.flush()
+                if sys.platform != 'win32':
+                    sys.stdout.flush()
                 break
             
             status = job['status']
             progress = job.get('progress', 0)
             message = job.get('message', '')
+            
+            # Ne renvoyer un événement que si le statut a changé
+            current_status = (status, progress, message)
+            if current_status == last_status:
+                # Même statut, on attend un peu avant de re-vérifier
+                time.sleep(0.5)
+                # Heartbeat toutes les 15 secondes (commentaire pour éviter les problèmes)
+                if time.time() - last_heartbeat > 15:
+                    last_heartbeat = time.time()
+                continue
+            
+            last_status = current_status
             
             # Déterminer le step à partir du status
             step_map = {
@@ -537,23 +567,23 @@ def transcribe_progress(job_id):
                 "status": status,
             }
             yield "event: status\ndata: " + json.dumps(status_event) + "\n\n"
-            sys.stdout.flush()
+            if sys.platform != 'win32':
+                sys.stdout.flush()
             
             if status == 'done':
                 yield "event: done\ndata: " + json.dumps({"message": "Transcription terminée"}) + "\n\n"
-                sys.stdout.flush()
+                if sys.platform != 'win32':
+                    sys.stdout.flush()
                 break
             elif status == 'error':
                 error_event = {"message": job.get('error', 'Erreur inconnue')}
                 yield "event: error\ndata: " + json.dumps(error_event) + "\n\n"
-                sys.stdout.flush()
+                if sys.platform != 'win32':
+                    sys.stdout.flush()
                 break
             
-            # Heartbeat toutes les 15 secondes
-            if time.time() - last_heartbeat > 15:
-                yield "\n"
-                sys.stdout.flush()
-                last_heartbeat = time.time()
+            # Pause courte pour ne pas surcharger le CPU
+            time.sleep(0.5)
     
     from flask import Response
     return Response(
@@ -663,6 +693,41 @@ def export_midi():
         return jsonify({'error': f'Export MIDI failed: {str(e)}'}), 500
 
 
+@app.route('/api/export-musicxml', methods=['POST'])
+def export_musicxml():
+    """Exporte la partition en fichier MusicXML (.xml)."""
+    try:
+        score_data = request.get_json()
+        if not score_data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        # Utiliser musicxml_exporter pour générer le fichier en mémoire
+        import tempfile
+        import io
+        from musicxml_exporter import export_musicxml
+
+        # Créer un fichier temporaire en mémoire
+        fd, temp_path = tempfile.mkstemp(suffix='.xml')
+        os.close(fd)
+        try:
+            export_musicxml(score_data, temp_path)
+            with open(temp_path, 'rb') as f:
+                xml_bytes = f.read()
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+        return send_file(
+            io.BytesIO(xml_bytes),
+            mimetype='application/vnd.recordare.musicxml',
+            as_attachment=True,
+            download_name='partition_piano.musicxml',
+        )
+    except Exception as e:
+        logger.exception('[Export MusicXML] Erreur lors de la génération du fichier')
+        return jsonify({'error': f'Export MusicXML failed: {str(e)}'}), 500
+
+
 @app.route('/api/midi/<job_id>', methods=['GET'])
 def get_midi(job_id):
     """Télécharge le fichier MIDI généré."""
@@ -720,13 +785,14 @@ if __name__ == '__main__':
     print("\n🎵 Audio-to-Sheet Music v3.0.0")
     print("📡 Server: http://localhost:5000")
     print("📖 API Docs:")
-    print("   GET    /              - Interface web")
-    print("   GET    /api/health    - Health check")
-    print("   GET    /api/device-info - Device info")
-    print("   POST   /api/transcribe - Transcription audio")
-    print("   POST   /api/cleanup   - Cleanup temp files")
-    print("   POST   /api/export-midi - Export MIDI")
-    print("   GET    /api/status    - Check job status")
-    print("   GET    /api/midi      - Download MIDI file")
-    print("   GET    /api/score     - Download MusicXML file")
+    print("   GET    /                    - Interface web")
+    print("   GET    /api/health          - Health check")
+    print("   GET    /api/device-info     - Device info")
+    print("   POST   /api/transcribe      - Transcription audio")
+    print("   POST   /api/cleanup         - Cleanup temp files")
+    print("   POST   /api/export-midi     - Export MIDI")
+    print("   POST   /api/export-musicxml - Export MusicXML")
+    print("   GET    /api/status          - Check job status")
+    print("   GET    /api/midi            - Download MIDI file")
+    print("   GET    /api/score           - Download MusicXML file")
     app.run(host='0.0.0.0', port=5000, debug=False)

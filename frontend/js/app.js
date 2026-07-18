@@ -244,7 +244,7 @@ function initTranscriptionOptions() {
     // Mettre à jour le label d'affichage
     const display = document.getElementById('harmonic-filter-display');
     if (display) {
-      const labels = { off: 'Désactivé', basic: 'Basique', classical: 'Classique', aggressive: 'Agressif' };
+      const labels = { off: 'Désactivé', basic: 'Basique', classical: 'Classique', aggressive: 'Agressif', 'pedal-aware': 'Anti-pédale' };
       display.textContent = labels[val] || 'Classique';
     }
   }
@@ -275,6 +275,8 @@ function initTranscriptionOptions() {
       if (enableTriplets) enableTriplets.checked = false;
       if (thresholdSlider) thresholdSlider.value = 1;
       setHarmonicFilterValue('off');
+      // Réinitialiser le slider de sensibilité pour ce preset
+      if (qsSlider) qsSlider.value = 0.5;
     } else if (presetName === 'equilibre') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -318,6 +320,7 @@ function initTranscriptionOptions() {
       if (enableTriplets) enableTriplets.checked = true;
       if (thresholdSlider) thresholdSlider.value = 0.55;
       setHarmonicFilterValue('classical');
+      if (qsSlider) qsSlider.value = 0.5;
     } else if (presetName === 'jazz') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -336,7 +339,7 @@ function initTranscriptionOptions() {
     } else if (presetName === 'precision') {
       setTranscriberValue('transkun');
       if (useDemucsCb) useDemucsCb.checked = true;
-      setQuantizationValue('standard');
+      setQuantizationValue('heavy');
       if (removeShortCb) removeShortCb.checked = false;
       if (mergeNearCb) mergeNearCb.checked = false;
       if (splitHandsCb) splitHandsCb.checked = true;
@@ -345,7 +348,9 @@ function initTranscriptionOptions() {
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
       if (thresholdSlider) thresholdSlider.value = 0.33;
-      setHarmonicFilterValue('aggressive');
+      // Utiliser le filtrage anti-pédale spécialisé (le plus efficace pour notes en trop)
+      setHarmonicFilterValue('pedal-aware');
+      if (qsSlider) qsSlider.value = 0.90;
     }
 
     const display = document.getElementById('threshold-display');
@@ -459,7 +464,7 @@ function initTranscriptionOptions() {
     } else if (ct === 'piano_transcription' && cd && cq === 'heavy' && !crs && !cmn && csh && cdt && cdk && !crb && !ctr && Math.abs(ctH - 0.50) < 0.01) {
       presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'jazz'));
       setHq(false);
-    } else if (ct === 'transkun' && cd && cq === 'standard' && !crs && !cmn && csh && cdt && cdk && crb && ctr && Math.abs(ctH - 0.33) < 0.01) {
+    } else if (ct === 'transkun' && cd && cq === 'heavy' && !crs && !cmn && csh && cdt && cdk && crb && ctr && Math.abs(ctH - 0.90) < 0.01) {
       presetBtns.forEach(b => b.classList.toggle('active', b.dataset.preset === 'precision'));
       setHq(false);
     } else {
@@ -524,47 +529,129 @@ function subscribeToProgress(jobId) {
   });
 
   // Événement de succès
-  currentSSESource.addEventListener('done', (e) => {
+  currentSSESource.addEventListener('done', async (e) => {
     console.log('[SSE] Job terminé:', e.data);
-    clearInterval(currentPollingTimer);
-    currentPollingTimer = null;
+    
+    // Fermer le flux SSE
     if (currentSSESource) {
       currentSSESource.close();
       currentSSESource = null;
     }
+    clearInterval(currentPollingTimer);
+    currentPollingTimer = null;
     
     updateProgress(100);
     setLoadingStep('✅ Transcription terminée');
     
-    // Récupérer le résultat final
-    fetch(`/api/transcribe/result/${jobId}`)
-      .then(res => res.json())
-      .then(result => {
-        if (result.success) {
+    // Attendre 500ms pour s'assurer que le job est bien terminé côté serveur
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Récupérer le résultat final avec retry
+    const maxRetries = 3;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        console.log(`[SSE] Tentative ${i + 1}/${maxRetries} pour récupérer le résultat...`);
+        const res = await fetch(`/api/transcribe/result/${jobId}`);
+        console.log('[SSE] Response status:', res.status);
+        
+        if (!res.ok) {
+          console.warn(`[SSE] HTTP ${res.status}, retry ${i + 1}/${maxRetries}...`);
+          if (i < maxRetries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            continue;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const result = await res.json();
+        console.log('[SSE] Result JSON:', result);
+        
+        if (result.success && result.score_data && result.score_data.measures && result.score_data.measures.length > 0) {
+          console.log('[SSE] ✅ Transcription réussie, affichage de la partition...');
           handleTranscriptionResult(result);
         } else {
-          showSection('upload');
-          showToast(`❌ ${result.error || 'Échec de la transcription'}`, 'error', 8000);
+          console.warn('[SSE] Resultat sans score_data, tentative de polling direct...');
+          // Fallback: polling direct
+          await fallbackPolling(jobId);
         }
-      })
-      .catch(err => {
-        console.error('[SSE] Erreur récupération résultat:', err);
-        showSection('upload');
-        showToast('❌ Erreur lors de la récupération du résultat', 'error', 8000);
-      });
+        break;
+      } catch (err) {
+        console.error(`[SSE] Erreur tentative ${i + 1}:`, err);
+        if (i < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          // Dernier retry échoué: fallback direct
+          console.warn('[SSE] Tous les retries échoués, fallback polling...');
+          await fallbackPolling(jobId);
+        }
+      }
+    }
   });
+
+  // Fonction de fallback: polling direct du status
+  async function fallbackPolling(id) {
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      try {
+        const res = await fetch(`/api/transcribe/result/${id}`);
+        if (res.ok) {
+          const result = await res.json();
+          if (result.success && result.score_data) {
+            console.log('[SSE] ✅ Résultat trouvé via fallback polling');
+            handleTranscriptionResult(result);
+            return;
+          }
+        } else if (res.status === 202) {
+          console.log(`[SSE] Job encore en cours (${i + 1}/10)...`);
+          continue;
+        }
+      } catch (err) {
+        console.warn('[SSE] Fallback polling erreur:', err);
+      }
+    }
+    // Échec total
+    console.error('[SSE] Fallback polling échoué');
+    showSection('upload');
+    showToast('❌ La transcription est terminée mais la partition n\'a pas pu être chargée. Réessayez.', 'error', 8000);
+  }
 
   // Événement d'erreur
   currentSSESource.addEventListener('error', (e) => {
     console.error('[SSE] Erreur de connexion:', e);
+    console.error('[SSE] ReadyState:', e.currentTarget.readyState);
+    console.error('[SSE] URL:', e.currentTarget.url);
+    
+    // ReadyState: 0=CONNECTING, 1=OPEN, 2=CLOSED
+    if (e.currentTarget.readyState === EventSource.CLOSED) {
+      console.log('[SSE] Connexion fermée par le serveur (job terminé ou expiré)');
+    } else {
+      console.warn('[SSE] Erreur HTTP détectée, tentative de récupération du résultat...');
+      // Tenter de récupérer le résultat quand même
+      fetch(`/api/transcribe/result/${jobId}`)
+        .then(res => res.json())
+        .then(result => {
+          if (result.success && result.score_data) {
+            console.log('[SSE] Résultat récupéré malgré l\'erreur SSE');
+            handleTranscriptionResult(result);
+          } else {
+            console.error('[SSE] Résultat d\'erreur:', result);
+            showSection('upload');
+            showToast(`❌ ${result.error || 'Échec de la transcription'}`, 'error', 8000);
+          }
+        })
+        .catch(err => {
+          console.error('[SSE] Erreur récupération résultat:', err);
+          showSection('upload');
+          showToast('❌ Erreur lors de la récupération du résultat', 'error', 8000);
+        });
+    }
+    
     clearInterval(currentPollingTimer);
     currentPollingTimer = null;
     if (currentSSESource) {
       currentSSESource.close();
       currentSSESource = null;
     }
-    showSection('upload');
-    showToast('❌ Erreur de connexion au serveur', 'error', 8000);
   });
 }
 

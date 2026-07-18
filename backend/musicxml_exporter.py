@@ -64,23 +64,42 @@ def export_musicxml(score_data: Dict[str, Any], output_path: str):
             return f"{parts[0].upper()}{parts[1]}"
         return "C4"
 
-    # Suivi des pédales : mapping de temps global -> événements de pédale
-    # On gérera ça comme un Spanner après avoir construit toutes les mesures.
-    # Pour ça, on va aplatir (flat) la partition à la fin et insérer les spanners,
-    # ou on peut trouver les objets Note au bon offset.
+    # ── Mapping des pédales par mesure ──────────────────────
+    # On calcule les offsets réels de chaque mesure pour positionner les pédales.
+    pedal_by_measure = {}
+    measure_offsets = []  # (start_beat, end_beat) par mesure
+    cumulative_offset = 0.0
+    for m_data in score_data.get("measures", []):
+        m_start = cumulative_offset
+        # La durée de la mesure = max des durées cumulées treble et bass
+        treble_beats = sum(item.get("duration", 1.0) for item in m_data.get("treble", []))
+        bass_beats = sum(item.get("duration", 1.0) for item in m_data.get("bass", []))
+        m_end = max(treble_beats, bass_beats)
+        measure_offsets.append((m_start, m_end))
+        cumulative_offset += max(treble_beats, bass_beats)
 
-    # ── Construction des mesures ────────────────────────────
+    for pedal in score_data.get("pedalMarkings", []):
+        start_beat = pedal.get("startBeat", 0.0)
+        end_beat = pedal.get("endBeat", 0.0)
+        if end_beat <= start_beat:
+            continue
+        # Assigner à la mesure dont l'offset couvre start_beat
+        for m_idx, (m_start, m_end) in enumerate(measure_offsets):
+            if m_start <= start_beat < m_end:
+                pedal_by_measure.setdefault(m_idx, []).append(pedal)
+                break
+
     for m_idx, m_data in enumerate(score_data.get("measures", [])):
         m_num = m_idx + 1
-        
+
         m_treble = stream.Measure(number=m_num)
         m_bass = stream.Measure(number=m_num)
-        
+
         # Changement d'armure éventuel
         if m_idx in key_changes:
             m_treble.insert(0, key_changes[m_idx])
             m_bass.insert(0, key_changes[m_idx])
-            
+
         # Symboles d'accords (ajoutés à la main droite)
         if m_idx in chord_symbols_map:
             for cs in chord_symbols_map[m_idx]:
@@ -89,9 +108,17 @@ def export_musicxml(score_data: Dict[str, Any], output_path: str):
                 try:
                     hc = harmony.ChordSymbol(sym)
                     m_treble.insert(beat_in_meas, hc)
-                except:
-                    pass # Ignore si format non reconnu par music21
-                    
+                except Exception:
+                    pass
+
+        # Pédales : utiliser element.setAttribute pour écrire directement le XML
+        if m_idx in pedal_by_measure:
+            for pedal in pedal_by_measure[m_idx]:
+                pedal_type = pedal.get("type", "start")
+                # Insérer la pédale au début de la mesure
+                pedal_elem = music21.note.Pedal(pedalType=pedal_type)
+                m_treble.insert(0, pedal_elem)
+
         # Remplissage des notes - Treble
         for item in m_data.get("treble", []):
             dur = make_music21_duration(item.get("duration", 1.0))
@@ -105,7 +132,7 @@ def export_musicxml(score_data: Dict[str, Any], output_path: str):
                 else:
                     n = chord.Chord(pitches, duration=dur)
                 m_treble.insert(item.get("startBeat", 0.0), n)
-                
+
         # Remplissage des notes - Bass
         for item in m_data.get("bass", []):
             dur = make_music21_duration(item.get("duration", 1.0))
@@ -119,31 +146,9 @@ def export_musicxml(score_data: Dict[str, Any], output_path: str):
                 else:
                     n = chord.Chord(pitches, duration=dur)
                 m_bass.insert(item.get("startBeat", 0.0), n)
-                
+
         part_treble.append(m_treble)
         part_bass.append(m_bass)
-
-    # ── Gestion des Pédales via SustainPedal (Spanner) ──────
-    # Les pédales sont en beats absolus.
-    # On va utiliser le flat_treble pour trouver les éléments aux offsets de début/fin.
-    flat_treble = part_treble.flatten()
-    for pedal in score_data.get("pedalMarkings", []):
-        start_beat = pedal.get("startBeat", 0.0)
-        end_beat = pedal.get("endBeat", 0.0)
-        
-        if end_beat <= start_beat:
-            continue
-            
-        # Insérer manuellement la balise SustainPedal
-        sp = spanner.SustainPedal()
-        
-        # Trouver la note/silence au (ou proche du) start_beat
-        start_elems = flat_treble.getElementsByOffset(start_beat, start_beat + 0.5)
-        end_elems = flat_treble.getElementsByOffset(end_beat - 0.5, end_beat + 0.5)
-        
-        if len(start_elems) > 0 and len(end_elems) > 0:
-            sp.addSpannedElements(start_elems[0], end_elems[-1])
-            part_treble.insert(0, sp)
 
     s.insert(0, part_treble)
     s.insert(0, part_bass)

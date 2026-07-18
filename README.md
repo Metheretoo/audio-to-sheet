@@ -53,25 +53,25 @@ python app.py
 - Glissez-déposez un fichier MP3, WAV ou FLAC, ou cliquez "Choisir un fichier"
 - Taille maximale : **50 MB**
 
-### 2. Modes de qualité
+### 2. Modes de qualité (presets)
 
-| Mode | Transcripteur | Isolation | Quantification | Filtrage harmonique | Usage recommandé |
-|------|---------------|-----------|----------------|---------------------|------------------|
-| **Rapide** | Basic Pitch | Désactivée | Standard | Désactivé | Aperçu immédiat sur fichier piano propre |
-| **Équilibré** (recommandé) | Piano Transcription | Activée (Demucs) | Standard (1/16) | Désactivé | Majority des morceaux (Pop, YouTube, etc.) |
-| **Classique** | Transkun | Activée (Demucs) | Légère (1/32) | Classique | Musique classique (Chopin, Debussy...) |
-| **Studio** | Piano Transcription HD | Activée (Demucs) | Standard | Classique | Jeu expressif, arpèges rapides |
-| **Jazz** | Piano Transcription | Activée (Demucs) | Forte (1/8) | Désactivé | Morceaux swing ou rubato |
-| **Precision** | Transkun | Activée (Demucs) | Standard | Agressif | Partitions classiques complexes |
+| Mode | Transcripteur | Quantification | Filtrage harmonique | Sensibilité | Usage recommandé |
+|------|---------------|----------------|---------------------|-------------|------------------|
+| **Rapide** | Piano Transcription | Légère (1/32) | Désactivé | Bas (0.20) | Aperçu immédiat sur fichier piano propre |
+| **Équilibré** (recommandé) | Piano Transcription | Standard (1/16) | Désactivé | Moyen (0.50) | Majority des morceaux (Pop, YouTube, etc.) |
+| **Classique** | Transkun | Légère (1/32) | Classique | Moyenne (0.50) | Musique classique (Chopin, Debussy...) |
+| **Studio** | Piano Transcription HD | Standard (1/16) | Classique | Moyenne (0.50) | Jeu expressif, arpèges rapides |
+| **Jazz** | Piano Transcription | Forte (1/8) | Désactivé | Haut (0.70) | Morceaux swing ou rubato |
+| **Precision** | Transkun | Forte (1/8) | **Anti-pédale** | Élevée (0.85) | Partitions classiques complexes — supprime les notes fantômes de pédale |
 
----
+> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **Anti-pédale**.
 
-### 3. Filtrage harmonique (nouveau)
+### 3. Filtrage harmonique
 
 Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédale forte du piano :
 
-- **Comment ça marche ?** Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons) et quinte (+7). Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.
-- **Le filtrage les supprime** en se basant sur la vélocité et la simultanéité des notes.
+- **Comment ça marche ?** Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons), quinte (+7), et quarte (+5). Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.
+- **Le filtrage les supprime** en se basant sur la vélocité, la simultanéité temporelle, la durée et le registre des notes.
 
 | Niveau | Description |
 |--------|-------------|
@@ -79,13 +79,11 @@ Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédal
 | **Basique** | Filtre simple (octave + quinte) |
 | **Classique** | Recommandé pour Chopin, Debussy, musique classique |
 | **Agressif** | Pour partitions très complexes (mazurkas, nocturnes) |
-
-> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **Agressif**.
+| **Anti-pédale** (NOUVEAU) | Spécialisé harmoniques de pédale — le plus efficace pour notes en trop |
 
 ### 4. Options avancées
 
 #### Transcripteur
-- **Basic Pitch** (rapide) : Modèle léger de Spotify, idéal pour mélodies simples
 - **Piano Transcription** (recommandé) : Entraîné spécifiquement sur le piano, meilleur pour accords complexes
 - **Transkun** (expressivité maximale) : Modèle Transformer SOTA avec haute précision expressive, idéal pour partitions classiques complexes
 
@@ -121,13 +119,14 @@ Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédal
 | Tempo (manuel) | Surcharger le tempo détecté (40-300 BPM) |
 | Mesure | 4/4, 3/4, 2/4 ou 6/8 |
 | Tonalité/Armure | Surcharger la tonalité détectée (13 options) |
-| Sensibilité | Ajuste la détection des notes (0.10-0.90) |
+| Sensibilité de détection | Ajuste la sensibilité (0.10-0.90). Plus c'est haut, plus la détection est stricte (moins de notes) |
+| Sensibilité de quantification | Ajuste la précision de la quantification (0.00-1.00). Plus c'est haut, plus les notes sont alignées sur la grille |
 
-### 5. Transcription
+### 6. Transcription
 - Cliquez **Transcrire** → l'IA analyse le fichier localement (1-3 min)
 - La progression est affichée en temps réel
 
-### 6. Éditer la partition
+### 7. Éditer la partition
 
 #### Sélection
 | Action | Raccourci |
@@ -159,7 +158,7 @@ Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédal
 | Insérer note | ➕ Note | — |
 | Insérer silence | ➕ Silence | — |
 
-### 7. Lire la partition
+### 8. Lire la partition
 - Cliquez **▶ Lire** ou appuyez sur **Espace** pour lancer la lecture audio
 - Les notes jouées se surlignent en or en temps réel
 - La barre de progression avance et affiche le temps écoulé
@@ -167,7 +166,7 @@ Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédal
 - Appuyez sur **Échap** pour arrêter la lecture
 - Moteur audio : **Son MIDI** (synthétiseur) ou **Piano concert** (SoundFont)
 
-### 8. Exporter
+### 9. Exporter
 | Format | Méthode | Description |
 |--------|---------|-------------|
 | **PDF** | 📄 PDF | Fenêtre d'impression du navigateur → "Enregistrer en PDF" |
@@ -220,7 +219,6 @@ audio-to-sheet/
 
 | Bibliothèque | Rôle | Licence |
 |---|---|---|
-| **Basic-Pitch** (Spotify) | Transcription audio → MIDI (IA) | Apache 2.0 |
 | **Piano Transcription** | Transcription piano haute qualité | — |
 | **Demucs** | Séparation audio (isolation piano) | MIT |
 | **Flask** | Serveur web local | BSD |
@@ -233,6 +231,8 @@ audio-to-sheet/
 | **onnxruntime** | Inférence modèle IA | MIT |
 | **VexFlow** | Rendu de partition en SVG | MIT |
 | **Web Audio API** | Synthèse sonore locale (intégrée au navigateur) | — |
+
+> **Aucun nouveau package n'est nécessaire** pour le filtrage harmonique. Le module `harmonic_filter.py` utilise uniquement `numpy` (déjà dans les dépendances).
 
 ---
 
@@ -248,7 +248,7 @@ Le projet V3 est organisé en phases modulaires :
 | 4 | `midi_exporter.py` | Export MIDI Type 0 | ✅ Complet |
 | 5 | `score_builder.py` | Génération MusicXML 3.0 | ✅ Complet |
 | 6 | `transcriber.py` | Orchestration pipeline complet | ✅ Complet |
-| 7 | `app.py` | API REST Flask | ✅ Complet |
+| 7 | `app.py` | API REST Flask + SSE | ✅ Complet |
 | 8 | `frontend/` | Interface utilisateur | 🔄 En cours |
 
 > Voir `v3-specs/PROGRESS.md` pour le suivi détaillé de chaque phase.

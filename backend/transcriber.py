@@ -207,6 +207,60 @@ def transcribe_audio(audio_path, options=None, warnings=None):
         tempo = estimate_tempo_from_events(note_events)
         print(f"[Transcriber] Tempo estimé à partir des notes : {tempo} BPM")
 
+    # ── 3.5 Filtrage harmonique UNIVERSEL (tous transcripteurs) ─────────────
+    # [FIX CRITIQUE] Le filtrage était DANS run_piano_transcription() → inaccessible pour transkun.
+    # On l'applique ICI dans transcribe_audio() pour qu'il s'applique à TOUS les transcripteurs.
+    if note_events:
+        # Convertir note_events → notes_dict si nécessaire
+        if isinstance(note_events, list) and note_events and isinstance(note_events[0], tuple):
+            notes_dict = [
+                {
+                    'onset': n[0],
+                    'pitch': n[1],
+                    'duration': n[2],
+                    'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])
+                }
+                for n in note_events
+            ]
+        else:
+            notes_dict = note_events
+        
+        harmonic_method = options.get('harmonic_filter', 'classical-strong')
+        # Si des paramètres manuels fins sont fournis, utiliser la méthode 'custom'
+        custom_params = {
+            'velocity_ratio': options.get('harmonic_velocity_ratio'),
+            'protection_threshold': options.get('harmonic_protection_threshold'),
+            'time_tolerance': options.get('harmonic_time_tolerance'),
+            'bass_threshold': options.get('harmonic_bass_threshold'),
+        }
+        has_custom = any(v is not None for v in custom_params.values())
+        effective_method = 'custom' if has_custom else harmonic_method
+        
+        if effective_method and effective_method != 'off':
+            try:
+                from harmonic_filter import filter_ghost_notes as harmonic_filter
+                # Transmettre les paramètres manuels dans options
+                if has_custom:
+                    options['_custom_harmonic'] = {k: v for k, v in custom_params.items() if v is not None}
+                    print(f"[Transcriber] 🎹 Paramètres harmoniques manuels activés: {list(options['_custom_harmonic'].keys())}")
+                before_count = len(notes_dict)
+                notes_dict = harmonic_filter(notes_dict, options, method=effective_method)
+                after_count = len(notes_dict)
+                removed = before_count - after_count
+                if removed > 0:
+                    print(f"[Transcriber] 🎹 Filtrage harmonique ({harmonic_method}): {before_count} → {after_count} notes ({removed} supprimés)")
+                else:
+                    print(f"[Transcriber] 🎹 Filtrage harmonique ({harmonic_method}): {after_count} notes (rien supprimé)")
+            except Exception as e:
+                print(f"[Transcriber] ⚠ harmonic_filter indisponible ({e})")
+        
+        # Convertir notes_dict → note_events si nécessaire
+        if isinstance(note_events, list) and note_events and isinstance(note_events[0], tuple):
+            note_events = [
+                (n['onset'], n['pitch'], n['duration'], int(round(n['velocity'] * 127)))
+                for n in notes_dict
+            ]
+    
     # P6.2 : Retourner uncertain_indices dans le tuple (5e élément)
     return note_events, midi_data, pedal_intervals, tempo, warnings.warnings(), uncertain_indices
 
@@ -1081,24 +1135,9 @@ class TranscriptionPipeline:
         except Exception as e:
             print(f"[Pipeline] ⚠ note_filter.filter_ghost_notes indisponible ({e})")
         
-        # ── Filtrage harmonique (piano classique) ────────────────────────────
-        # Supprime les "notes fantômes" causées par les harmoniques
-        # (une note grave jouée avec pédale crée des harmoniques à l'octave/quinte)
-        harmonic_method = options.get('harmonic_filter', 'classical')
-        if harmonic_method and harmonic_method != 'off':
-            try:
-                from harmonic_filter import filter_ghost_notes as harmonic_filter
-                before_count = len(notes_dict)
-                notes_dict = harmonic_filter(notes_dict, options, method=harmonic_method)
-                after_count = len(notes_dict)
-                removed = before_count - after_count
-                if removed > 0:
-                    print(f"[Pipeline] 🎹 Filtrage harmonique ({harmonic_method}): {before_count} → {after_count} notes ({removed} supprimés)")
-                else:
-                    print(f"[Pipeline] 🎹 Filtrage harmonique ({harmonic_method}): {after_count} notes (rien supprimé)")
-            except Exception as e:
-                print(f"[Pipeline] ⚠ harmonic_filter indisponible ({e})")
-        
+        # [NOTE] Le filtrage harmonique est maintenant appliqué UNIVERSELLEMENT
+        # dans transcribe_audio() (lignes ~210), AVANT le retour du pipeline.
+        # Il ne doit PAS être appliqué à nouveau ici pour éviter le double filtrage.
         # ── P5.1 : apply_pedal_aware_shortening AVANT quantification ─────────
         # On raccourcit les notes en secondes AVANT de quantifier en beats.
         # Si on le faisait après quantification, les durées seraient déjà
