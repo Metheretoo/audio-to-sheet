@@ -189,9 +189,14 @@ def device_info():
 # ── Stockage temporaire des jobs de transcription (thread-safe) ─────────────
 import concurrent.futures
 import time as _time
+from queue import Queue
 
-_transcription_jobs = {}  # job_id -> {'status': str, 'result': dict, 'error': str, 'progress': float, 'message': str, 'created_at': float}
+# Stockage des jobs
+_transcription_jobs = {}  # job_id -> {'status': str, 'result': dict, 'error': str, 'progress': float, 'message': str, 'step': str, 'created_at': float}
 _jobs_lock = __import__('threading').Lock()
+
+# Stockage des queues SSE par job (pour streaming)
+_sse_queues = {}  # job_id -> Queue
 
 
 def _cleanup_old_jobs():
