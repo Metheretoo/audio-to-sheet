@@ -27,9 +27,9 @@ transcriber:
     transkun:
       model_path: "models/transkun"
       model_type: "onnx"
-      onset_threshold: 0.45
-      frame_threshold: 0.35
-      minimum_note_length: 60.0
+      onset_threshold: 0.35   # Plus sensible pour capturer les notes graves douces
+      frame_threshold: 0.30  # Plus sensible pour les frames des basses
+      minimum_note_length: 40.0  # Réduit pour capturer les graves courts
     hft:
       model_path: "models/hft"
       model_type: "onnx"
@@ -38,8 +38,9 @@ transcriber:
   # ─────────────────────────────────────────────────────────────────────────────
   # ENSEMBLE VOTING (nouveau)
   # ─────────────────────────────────────────────────────────────────────────────
+  # [TEST] Désactivé pour isoler les performances de Transkun seul
   ensemble:
-    enabled: true
+    enabled: false  # ← Mettre true pour réactiver le vote multi-modèles
     models:
       - name: "piano_transcription"
         weight: 1.5
@@ -221,6 +222,19 @@ harmonic_filter:
       harmonic_chain: true
       duration_analysis: true
       pedal_zone_detection: true
+    transkun-chord:
+      description: "Recommandé pour classique : Transkun + filtre contextuel par accord — supprime les notes parasites dans les accords"
+      intervals: [12, 7, 5, 24]
+      velocity_threshold: 45
+      time_window: 0.10
+      register_protection: true
+      harmonic_chain: true
+      duration_analysis: true
+      pedal_zone_detection: true
+      chord_context: true
+      chord_sim_tolerance: 0.04
+      chord_main_velocity_min: 0.50
+      chord_suspect_ratio: 0.45
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GESTION MATÉRIEL (GPU/CPU)

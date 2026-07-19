@@ -59,12 +59,12 @@ python app.py
 |------|---------------|----------------|---------------------|-------------|------------------|
 | **Rapide** | Piano Transcription | Légère (1/32) | Désactivé | Bas (0.20) | Aperçu immédiat sur fichier piano propre |
 | **Équilibré** (recommandé) | Piano Transcription | Standard (1/16) | Désactivé | Moyen (0.50) | Majority des morceaux (Pop, YouTube, etc.) |
-| **Classique** | Transkun | Légère (1/32) | Classique | Moyenne (0.50) | Musique classique (Chopin, Debussy...) |
+| **Classique** | Transkun | Légère (1/32) | **transkun-chord** | Moyenne (0.50) | Musique classique (Chopin, Debussy...) |
 | **Studio** | Piano Transcription HD | Standard (1/16) | Classique | Moyenne (0.50) | Jeu expressif, arpèges rapides |
 | **Jazz** | Piano Transcription | Forte (1/8) | Désactivé | Haut (0.70) | Morceaux swing ou rubato |
-| **Precision** | Transkun | Forte (1/8) | **Anti-pédale** | Élevée (0.85) | Partitions classiques complexes — supprime les notes fantômes de pédale |
+| **Precision** | Transkun | Forte (1/8) | **transkun-chord** | Élevée (0.85) | Partitions classiques complexes — supprime les notes parasites dans les accords |
 
-> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **Anti-pédale**.
+> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **transkun-chord**.
 
 ### 3. Filtrage harmonique
 
@@ -79,7 +79,16 @@ Le filtrage harmonique supprime les **"notes fantômes"** causées par la pédal
 | **Basique** | Filtre simple (octave + quinte) |
 | **Classique** | Recommandé pour Chopin, Debussy, musique classique |
 | **Agressif** | Pour partitions très complexes (mazurkas, nocturnes) |
-| **Anti-pédale** (NOUVEAU) | Spécialisé harmoniques de pédale — le plus efficace pour notes en trop |
+| **Anti-pédale** | Spécialisé harmoniques de pédale — le plus efficace pour notes en trop |
+| **transkun-chord** (NOUVEAU) | **Recommandé pour classique** : Transkun + filtre contextuel par accord — supprime les notes parasites dans les accords |
+
+#### Nouveau : Filtre "transkun-chord"
+
+Le filtre **transkun-chord** combine deux étapes :
+1. **Filtrage Transkun** : supprime les harmoniques de pédale (seuils calibrés pour Transkun v2)
+2. **Filtre contextuel par accord** : identifie les accords légitimes (majeurs, mineurs, septièmes, diminués) et supprime les notes qui n'appartiennent à AUCUN accord valide
+
+**Exemple** : Accord C majeur (C4-E4-G4) détecté + C#4 à vélocité faible → C#4 supprimé car n'appartient pas à C majeur.
 
 ### 4. Options avancées
 
@@ -269,6 +278,7 @@ Le projet V3 est organisé en phases modulaires :
 **La transcription est trop dense / trop sparse**
 → Ajustez le curseur "Sensibilité de détection" (bas = moins de notes, haut = plus de notes).
 → Changez le mode de quantification (Légère = plus de détails, Forte = plus simple).
+→ Pour classique : utilisez le preset **Classique** ou **Precision** avec filtrage **transkun-chord**.
 
 **Pas de son lors de la lecture**
 → Cliquez d'abord une fois dans la page (les navigateurs bloquent l'audio tant qu'il n'y a pas d'interaction utilisateur).

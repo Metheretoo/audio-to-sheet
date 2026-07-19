@@ -2,6 +2,7 @@
 transcriber.py — Pipeline de transcription audio → MIDI (Basic Pitch, Piano Transcription, Demucs)
 """
 import os
+import sys
 import tempfile
 import numpy as np
 import pretty_midi
@@ -226,6 +227,14 @@ def transcribe_audio(audio_path, options=None, warnings=None):
             notes_dict = note_events
         
         harmonic_method = options.get('harmonic_filter', 'classical-strong')
+        
+        # [FIX CRITIQUE] Adapter automatiquement le mode harmonique selon le transcripteur
+        # Transkun détecte beaucoup de graves → classical-strong supprime trop de notes graves
+        # Si l'utilisateur n'a PAS explicitement configuré harmonic_filter, adapter automatiquement
+        # transkun-chord = Transkun + filtre contextuel par accord (supprime notes parasites dans accords)
+        if transcriber_choice == 'transkun' and harmonic_method == 'classical-strong':
+            harmonic_method = 'transkun-chord'
+            print(f"[Transcriber] 🔄 Harmonique adapté automatiquement: classical-strong → transkun-chord (notes parasites dans accords)")
         # Si des paramètres manuels fins sont fournis, utiliser la méthode 'custom'
         custom_params = {
             'velocity_ratio': options.get('harmonic_velocity_ratio'),
@@ -292,14 +301,25 @@ def run_transkun(audio_path, options):
     try:
         t0 = time.perf_counter()
         # Appel externe pour isoler la mémoire et éviter les conflits de dépendances
+        # [FIX CRITIQUE] Utiliser sys.executable pour forcer le Python du venv
+        # Sinon "python" peut aller chercher sur C:/ProgramData/... ou autre PATH système
         cmd = [
-            "python", "-m", "transkun.transcribe",
+            sys.executable, "-m", "transkun.transcribe",
             audio_path,
             temp_midi_path,
             "--device", device_arg
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # [FIX] Ajouter le venv Scripts au PATH pour que les .exe de Transkun soient trouvables
+        # Le venv utilise moduleconf, sox, seaborn etc. qui ont des dépendances natives (.exe)
+        venv_scripts = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(sys.executable))), 'Scripts')
+        env = os.environ.copy()
+        if 'PATH' in env:
+            env['PATH'] = venv_scripts + ';' + env['PATH']
+        else:
+            env['PATH'] = venv_scripts
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         
         if result.returncode != 0:
             print(f"[Transcriber] Erreur Transkun : {result.stderr}")

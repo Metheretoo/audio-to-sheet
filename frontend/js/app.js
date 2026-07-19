@@ -156,10 +156,10 @@ function initUploadZone() {
     transBtn.disabled = true;
     currentJobId = null;
     window.currentScoreData = null;
-    // Réinitialiser la mesure à 4/4 par défaut
+    // NE PAS réinitialiser la mesure : garder la valeur du cache (comme les autres réglages)
+    // Seul le tempo détecté est réinitialisé (car spécifique au fichier audio)
     const timeSigSel = document.getElementById('time-sig');
     if (timeSigSel) {
-      timeSigSel.value = '4/4';
       delete timeSigSel.dataset.userOverride;
     }
     const meterBadge = document.getElementById('meter-auto-badge');
@@ -248,7 +248,7 @@ function initTranscriptionOptions() {
     // Mettre à jour le label d'affichage
     const display = document.getElementById('harmonic-filter-display');
     if (display) {
-      const labels = { off: 'Désactivé', basic: 'Basique', classical: 'Classique', 'classical-strong': 'Classique renforcé', aggressive: 'Agressif', 'pedal-aware': 'Anti-pédale', ultra: 'Ultra', custom: 'Personnalisé' };
+      const labels = { off: 'Désactivé', basic: 'Basique', classical: 'Classique', 'classical-strong': 'Classique renforcé', 'transkun-chord': 'Transkun-chord (classique)', aggressive: 'Agressif', 'pedal-aware': 'Anti-pédale', ultra: 'Ultra', custom: 'Personnalisé' };
       display.textContent = labels[val] || 'Classique';
     }
     // Afficher/masquer les paramètres personnalisés

@@ -35,6 +35,23 @@ piano-transcription-inference @ git+https://github.com/qiuqiangkong/piano_transc
 transkun>=2.0.0
 mir_eval>=0.7
 
+# ── Transkun dependencies (REQUIRED for transkun transcriber) ────────────────
+# Ces paquets sont requis par Transkun pour fonctionner correctement.
+# moduleconf : configuration
+# ncls : indexation locale de notes
+# pydub : manipulation audio
+# seaborn : visualisation
+# sox : traitement audio
+# tensorboard : monitoring
+# torch-optimizer : optimisation du modèle
+moduleconf>=0.1.4
+ncls>=0.0.70
+pydub>=0.25
+seaborn>=0.13
+sox>=1.5
+tensorboard>=2.20
+torch-optimizer>=0.3
+
 # ── Audio separation (si activé dans options) ────────────────────────────────
 demucs>=4.0
 
