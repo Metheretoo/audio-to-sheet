@@ -469,6 +469,16 @@ def transcribe():
     output_dir = get_temp_dir(f'output_{job_id}')
 
     # ── Initialiser le job dans le stockage ───────────────────────────
+    transcriber_name = options.get('transcriber', 'piano_transcription')
+    # Mapper les noms techniques vers des noms lisibles
+    _transcriber_names = {
+        'piano_transcription': 'Piano Transcription (ByteDance)',
+        'transkun': 'Transkun',
+        'basic_pitch': 'Basic Pitch',
+        'hft': 'HFT',
+        'mt3': 'MT3',
+        'ensemble': 'Ensemble',
+    }
     with _jobs_lock:
         _transcription_jobs[job_id] = {
             'status': 'pending',
@@ -477,6 +487,7 @@ def transcribe():
             'progress': 0.0,
             'message': 'En attente...',
             'created_at': _time.time(),
+            'transcriber_name': _transcriber_names.get(transcriber_name, transcriber_name),
         }
 
     try:
@@ -569,14 +580,49 @@ def transcribe_progress(job_id):
             
             last_status = current_status
             
-            # Déterminer le step à partir du status
-            step_map = {
-                'pending': 'init',
-                'running': 'transcription',
-                'done': 'export',
-                'error': 'error',
-            }
-            step = step_map.get(status, 'unknown')
+            # Déterminer le step à partir du status ET du message
+            step = 'unknown'
+            done_steps = []
+            
+            if status == 'pending':
+                step = 'init'
+                done_steps = []
+            elif status == 'error':
+                step = 'error'
+                done_steps = []
+            elif status == 'done':
+                step = 'export'
+                done_steps = ['init', 'demucs', 'transcription', 'quantize', 'build']
+            elif status == 'running':
+                # Utiliser le message pour déterminer l'étape actuelle
+                msg_lower = message.lower()
+                if 'initialisation' in msg_lower or 'modèle' in msg_lower:
+                    step = 'init'
+                    done_steps = []
+                elif 'chargement' in msg_lower or 'audio' in msg_lower:
+                    step = 'demucs'
+                    done_steps = ['init']
+                elif 'prétraitement' in msg_lower or 'demucs' in msg_lower:
+                    step = 'demucs'
+                    done_steps = ['init']
+                elif 'transcription' in msg_lower or 'transkun' in msg_lower or 'piano' in msg_lower:
+                    step = 'transcription'
+                    done_steps = ['init', 'demucs']
+                elif 'quantification' in msg_lower or 'quantize' in msg_lower:
+                    step = 'quantize'
+                    done_steps = ['init', 'demucs', 'transcription']
+                elif 'construction' in msg_lower or 'partition' in msg_lower or 'build' in msg_lower:
+                    step = 'build'
+                    done_steps = ['init', 'demucs', 'transcription', 'quantize']
+                elif 'export' in msg_lower or 'finalisation' in msg_lower:
+                    step = 'export'
+                    done_steps = ['init', 'demucs', 'transcription', 'quantize', 'build']
+                else:
+                    step = 'transcription'
+                    done_steps = ['init', 'demucs']
+            
+            # Récupérer le nom du transcripteur depuis le job
+            transcriber_name = job.get('transcriber_name', 'Inconnu')
             
             status_event = {
                 "type": "status",
@@ -584,6 +630,8 @@ def transcribe_progress(job_id):
                 "message": message,
                 "progress": progress,
                 "status": status,
+                "done_steps": done_steps,
+                "transcriber_name": transcriber_name,
             }
             yield "event: status\ndata: " + json.dumps(status_event) + "\n\n"
             if sys.platform != 'win32':

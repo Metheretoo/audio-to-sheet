@@ -157,10 +157,12 @@ function initUploadZone() {
     currentJobId = null;
     window.currentScoreData = null;
     // NE PAS réinitialiser la mesure : garder la valeur du cache (comme les autres réglages)
+    // L'override utilisateur est conservé pour ne pas perdre la valeur saisie
     // Seul le tempo détecté est réinitialisé (car spécifique au fichier audio)
     const timeSigSel = document.getElementById('time-sig');
     if (timeSigSel) {
-      delete timeSigSel.dataset.userOverride;
+      // Conserver userOverride si l'utilisateur a modifié la valeur
+      // Ne pas effacer la valeur du select
     }
     const meterBadge = document.getElementById('meter-auto-badge');
     if (meterBadge) meterBadge.style.display = 'none';
@@ -512,6 +514,19 @@ function initTranscriptionOptions() {
     });
   }
 
+  // Listener pour le select time-sig : marquer l'override utilisateur et sauvegarder
+  const timeSigEl = document.getElementById('time-sig');
+  if (timeSigEl) {
+    timeSigEl.addEventListener('change', () => {
+      // Marquer que l'utilisateur a modifié la valeur
+      timeSigEl.dataset.userOverride = 'true';
+      // Sauvegarder dans localStorage
+      try {
+        localStorage.setItem('audiosheet_time_sig', timeSigEl.value);
+      } catch (e) { /* ignore */ }
+    });
+  }
+
   // Tous les contrôles sauf harmonic-filter (déjà traité ci-dessus)
   const allControls = [
     useDemucsCb, removeShortCb, minNoteInput, mergeNearCb, mergeGapInput,
@@ -563,6 +578,18 @@ function initTranscriptionOptions() {
   }
 
   applyPreset('equilibre');
+
+  // Restaurer la mesure sauvegardée depuis le localStorage
+  try {
+    const savedTimeSig = localStorage.getItem('audiosheet_time_sig');
+    if (savedTimeSig && timeSigEl) {
+      const hasOption = Array.from(timeSigEl.options).some(o => o.value === savedTimeSig);
+      if (hasOption) {
+        timeSigEl.value = savedTimeSig;
+        timeSigEl.dataset.userOverride = 'saved';
+      }
+    }
+  } catch (e) { /* ignore */ }
 }
 
 
@@ -584,38 +611,49 @@ function subscribeToProgress(jobId) {
   currentSSESource = new EventSource(`/api/transcribe-progress/${jobId}`);
 
   // Événement de statut (progression détaillée)
-  currentSSESource.addEventListener('status', (e) => {
-    try {
-      const data = JSON.parse(e.data);
-      console.log('[SSE] Status:', data);
-      
-      const step = data.step || 'transcription';
-      const message = data.message || 'Transcription en cours…';
-      const progress = data.progress || 0;
-      
-      updateProgress(progress * 100);
-      
-      // Mapper les étapes du backend vers des messages frontend
-      const stepMessages = {
-        'init': '🔍 Initialisation du modèle...',
-        'load_audio': '🎵 Chargement de l\'audio...',
-        'demucs': '🔊 Prétraitement audio...',
-        'transcription': message,
-        'filtering': '🧹 Filtrage des notes...',
-        'tempomap': '📊 Analyse du tempo...',
-        'quantization': '📐 Quantification rythmique...',
-        'voice_split': '✋ Séparation des mains...',
-        'score_build': '🎼 Construction de la partition...',
-        'export': '💾 Finalisation...',
-      };
-      
-      const displayMessage = stepMessages[step] || message;
-      setLoadingStep(displayMessage);
-      
-    } catch (err) {
-      console.error('[SSE] Erreur parsing status:', err);
-    }
-  });
+   currentSSESource.addEventListener('status', (e) => {
+     try {
+       const data = JSON.parse(e.data);
+       console.log('[SSE] Status:', data);
+       
+       const step = data.step || 'transcription';
+       const message = data.message || 'Transcription en cours…';
+       const progress = data.progress || 0;
+       
+       updateProgress(progress * 100);
+       
+       // Mettre à jour les étapes détaillées
+       updatePipelineStage(step, data.done_steps || []);
+       
+       // Mettre à jour le nom du transcripteur si présent
+       if (data.transcriber_name) {
+         const transcriberLabel = document.getElementById('transcriber-label');
+         if (transcriberLabel) {
+           transcriberLabel.textContent = data.transcriber_name;
+         }
+       }
+       
+       // Mapper les étapes du backend vers des messages frontend
+       const stepMessages = {
+         'init': '🔍 Initialisation du modèle...',
+         'load_audio': '🎵 Chargement de l\'audio...',
+         'demucs': '🔊 Prétraitement audio (Demucs)...',
+         'transcription': message,
+         'filtering': '🧹 Filtrage des notes...',
+         'tempomap': '📊 Analyse du tempo...',
+         'quantization': '📐 Quantification rythmique...',
+         'voice_split': '✋ Séparation des mains...',
+         'score_build': '🎼 Construction de la partition...',
+         'export': '💾 Export des fichiers...',
+       };
+       
+       const displayMessage = stepMessages[step] || message;
+       setLoadingStep(displayMessage);
+       
+     } catch (err) {
+       console.error('[SSE] Erreur parsing status:', err);
+     }
+   });
 
   // Événement de succès
   currentSSESource.addEventListener('done', async (e) => {
@@ -835,6 +873,48 @@ async function startTranscription(file) {
       document.title = `(1) ❌ Erreur - ${window.originalDocumentTitle}`;
     }
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Mise à jour des étapes détaillées (pipeline)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function updatePipelineStage(currentStep, doneSteps = []) {
+  // Mapping des step backend vers les data-step du HTML
+  const stepToDataStep = {
+    'init': 'init',
+    'load_audio': 'init',
+    'demucs': 'demucs',
+    'transcription': 'transcription',
+    'quantize': 'quantize',
+    'quantization': 'quantize',
+    'build': 'build',
+    'score_build': 'build',
+    'export': 'export',
+  };
+  
+  // Normaliser le nom de l'étape actuelle
+  const normalizedStep = stepToDataStep[currentStep] || currentStep;
+  
+  document.querySelectorAll('.stage-item').forEach(el => {
+    const stepName = el.dataset.step;
+    const icon = el.querySelector('.stage-icon');
+    
+    // Réinitialiser les classes
+    el.classList.remove('active', 'done');
+    
+    if (doneSteps.includes(stepName) || (stepName === normalizedStep && doneSteps.includes(stepName))) {
+      // Étape terminée (dans doneSteps)
+      el.classList.add('done');
+      icon.textContent = '✅';
+    } else if (stepName === normalizedStep) {
+      // Étape en cours
+      el.classList.add('active');
+      icon.textContent = '⏳';
+    } else {
+      // Étape en attente
+      icon.textContent = '⏳';
+    }
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1076,12 +1156,16 @@ function updateDetectedMeter(detectedMeter) {
   const timeSigSelect = document.getElementById('time-sig');
   const badge = document.getElementById('meter-auto-badge');
 
-  if (timeSigSelect && !timeSigSelect.dataset.userOverride) {
+  if (timeSigSelect) {
     const targetVal = `${num}/${den}`;
     const hasOption = Array.from(timeSigSelect.options).some(o => o.value === targetVal);
     if (hasOption) {
+      // Toujours mettre à jour la valeur détectée
       timeSigSelect.value = targetVal;
-      if (badge) badge.style.display = 'inline';
+      // Afficher le badge si la détection est active
+      if (detectMeterCb && detectMeterCb.checked) {
+        if (badge) badge.style.display = 'inline';
+      }
     }
   }
 }

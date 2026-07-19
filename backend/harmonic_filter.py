@@ -291,8 +291,23 @@ def _filter_chord_contextual(
                         removed_indices.add(idx)
                         removed_reasons['chord_non_harmonic'] += 1
 
+    # Protection : notes graves solo (< BASS_THRESHOLD) sans harmonique proche
+    # Ces notes sont légitimes (basses, pédale) et ne font pas partie d'un accord
     for i, note in enumerate(notes):
         if i not in removed_indices:
+            # Si la note est grave et qu'aucune note harmonique proche n'existe → protéger
+            if note['pitch'] < BASS_THRESHOLD and note['velocity'] > 0.15:
+                has_nearby_harmonic = False
+                for j, other in enumerate(notes):
+                    if j == i or j in removed_indices:
+                        continue
+                    interval = is_harmonic_of(note['pitch'], other['pitch'])
+                    if interval is not None and abs(note['onset'] - other['onset']) < PEDAL_SIMULTANEITY_TOLERANCE:
+                        has_nearby_harmonic = True
+                        break
+                if not has_nearby_harmonic:
+                    kept.append(note)
+                    continue
             kept.append(note)
 
     total_removed = len(notes) - len(kept)

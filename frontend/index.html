@@ -5,12 +5,12 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-    content="AudioScore — Transcription audio MP3 en partition de piano. 100% local, open source." />
-  <title>🎹 AudioScore — Partition Piano</title>
+    content="Audio2Score — Transcription audio MP3 en partition de piano. 100% local, open source." />
+  <title>🎹 Audio2Score — Partition Piano</title>
   <!--  <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />-->
-  <link rel="stylesheet" href="/css/style.css?v=10" />
+  <link rel="stylesheet" href="/css/style.css?v=11" />
 </head>
 
 <body>
@@ -21,8 +21,8 @@
       <div class="logo">
         <span class="logo-icon">🎹</span>
         <div>
-          <span class="logo-name">AudioScore</span>
-          <span class="logo-tagline">Transcription Audio → Partition Piano</span>
+          <span class="logo-name">Ex sono scientia</span>
+          <span class="logo-tagline">« Du son naît la connaissance. »</span>
         </div>
       </div>
       <div class="header-badges">
@@ -368,6 +368,32 @@
         <div class="progress-track">
           <div class="progress-fill" id="progress-fill"></div>
         </div>
+        <div class="pipeline-stages" id="pipeline-stages">
+          <div class="stage-item" data-step="init">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label">Initialisation</span>
+          </div>
+          <div class="stage-item" data-step="demucs">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label">Isolation Demucs</span>
+          </div>
+          <div class="stage-item" data-step="transcription">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label" id="transcriber-label">Transcription IA</span>
+          </div>
+          <div class="stage-item" data-step="quantize">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label">Quantification</span>
+          </div>
+          <div class="stage-item" data-step="build">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label">Construction partition</span>
+          </div>
+          <div class="stage-item" data-step="export">
+            <span class="stage-icon">⏳</span>
+            <span class="stage-label">Export fichiers</span>
+          </div>
+        </div>
         <p class="loading-step" id="loading-step">Initialisation du modèle…</p>
       </div>
     </section>
@@ -534,10 +560,10 @@
   <!-- ══ Scripts ════════════════════════════════════════════════════════════════ -->
   <script src="/js/lib/soundfont-player.min.js"></script>
   <script src="/js/lib/vexflow.js"></script>
-  <script src="/js/renderer.js?v=14"></script>
-  <script src="/js/editor.js?v=14"></script>
-  <script src="/static/js/ScorePlayer.js?v=10"></script>
-  <script src="/static/js/app.js?v=14"></script>
+  <script src="/js/renderer.js?v=15"></script>
+  <script src="/js/editor.js?v=15"></script>
+  <script src="/static/js/ScorePlayer.js?v=11"></script>
+  <script src="/static/js/app.js?v=15"></script>
 
 </body>
 
