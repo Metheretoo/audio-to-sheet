@@ -1,4 +1,4 @@
-# AudioScore — Transcription Audio → Partition Piano
+# Audio2Score — Transcription Audio → Partition Piano
 
 Application locale et open source pour convertir un fichier audio (MP3, WAV, FLAC) en partition de piano (clé de Sol + clé de Fa), avec édition interactive et lecture locale.
 
@@ -32,7 +32,7 @@ Le script va automatiquement :
 
 ```bash
 # Se placer dans le dossier backend
-cd audio-to-sheet/backend
+cd backend
 
 # Créer et activer l'environnement virtuel
 python -m venv venv
@@ -50,20 +50,23 @@ python app.py
 ## 🎹 Utilisation
 
 ### 1. Uploader un fichier
+
 - Glissez-déposez un fichier MP3, WAV ou FLAC, ou cliquez "Choisir un fichier"
 - Taille maximale : **50 MB**
 
 ### 2. Modes de qualité (presets)
 
-| Mode | Transcripteur | Quantification | Filtrage harmonique | Sensibilité | Usage recommandé |
-|------|---------------|----------------|---------------------|-------------|------------------|
-| **Rapide** | Piano Transcription | Légère (1/32) | Désactivé | Bas (0.20) | Aperçu immédiat sur fichier piano propre |
-| **Équilibré** (recommandé) | Piano Transcription | Standard (1/16) | Désactivé | Moyen (0.50) | Majority des morceaux (Pop, YouTube, etc.) |
-| **Classique** | Transkun | Légère (1/32) | **transkun-chord** | Moyenne (0.50) | Musique classique (Chopin, Debussy...) |
-| **Studio** | Piano Transcription HD | Standard (1/16) | Classique | Moyenne (0.50) | Jeu expressif, arpèges rapides |
-| **Jazz** | Piano Transcription | Forte (1/8) | Désactivé | Haut (0.70) | Morceaux swing ou rubato |
-| **Precision** | Transkun | Forte (1/8) | **transkun-chord** | Élevée (0.85) | Partitions classiques complexes — supprime les notes parasites dans les accords |
+L'application propose 5 presets configurés automatiquement. Voici leur configuration **réelle** telle qu'implémentée dans `frontend/js/app.js` (fonction `applyPreset`) :
 
+| Mode | Transcripteur | Demucs | Quantification | Seuil onset | Rubato | Triolets | Filtrage harmonique | QS (sensitivity) | Usage recommandé |
+|------|---------------|--------|----------------|-------------|--------|----------|---------------------|------------------|------------------|
+| **Rapide** | hFT-Transformer | ❌ false | Light | 1.0 (max) | ❌ | ❌ | off | 0.5 | Aperçu immédiat sur fichier contenant uniquement du piano |
+| **Équilibré** ✅ (recommandé, actif par défaut) | Transkun | ❌ false | Standard | 0.55 | ❌ | ❌ | off | 0.5 | Majority des morceaux (Pop, YouTube, etc.) |
+| **Precision** | Piano Transcription | ❌ false | Heavy | 0.33 (sensible) | ✅ | ✅ | transkun-chord | 0.90 | Partitions classiques complexes (Chopin, Debussy...) avec minimum de notes en trop |
+| **Classique** | Piano Transcription | ❌ false | Light | 0.33 (sensible) | ✅ | ✅ | classical | 1.0 | Musique classique expressif, arpèges, notes douces |
+| **Jazz** | Piano Transcription | ❌ false | Heavy | 0.67 | ❌ | ❌ | off | 0.5 | Morceaux swing ou à rubato, simplification pour la lecture |
+
+> 💡 **QS** = Quantization Sensitivity (0.0 = brut, 1.0 = aligné sur grille).
 > 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **transkun-chord**.
 
 ### 3. Filtrage harmonique
@@ -93,19 +96,24 @@ Le filtre **transkun-chord** combine deux étapes :
 ### 4. Options avancées
 
 #### Transcripteur
+
 - **Piano Transcription** (recommandé) : Entraîné spécifiquement sur le piano, meilleur pour accords complexes
 - **Transkun** (expressivité maximale) : Modèle Transformer SOTA avec haute précision expressive, idéal pour partitions classiques complexes
+- **hFT-Transformer** (Sony) : Modèle de transcription audio à base de Transformer, performant sur la détection de notes et de pédales
 
 #### Isolation du piano (Demucs)
+
 - Sépare les instruments et conserve principalement la piste piano
 - Désactivez uniquement si votre fichier est un enregistrement studio **exclusivement** piano
 
 #### Nettoyage MIDI
+
 - **Supprimer les notes très courtes** : Filtre les notes parasites (ghost notes)
   - Durée minimale par défaut : 50ms
 - **Fusionner les notes répétées proches** : Lisse le rendu pour notes tenues
 
 #### Quantification
+
 | Option | Granularité | Description |
 |--------|-------------|-------------|
 | Aucune | Brut | Pas d'arrondi (injouable, debug uniquement) |
@@ -113,17 +121,27 @@ Le filtre **transkun-chord** combine deux étapes :
 | **Standard** | **1/16** | **Meilleur compromis lisibilité (Pop/Variété)** |
 | Forte | 1/8 | Simplification maximale (débutants) |
 
+#### Options expressives
+
+- **Rubato** : Préserve l'expressivité (arpèges, notes inégales)
+- **Triolets** : Active la détection et l'écriture des triolets
+- **Smooth** (rythme simplifié) : Double le tempo et simplifie le rythme (noires/croches uniquement)
+
 #### Noms des notes en français
+
 - **Activer** : Affiche les noms des notes (Do, Ré, Mi, Fa, Sol, La, Si) au-dessus des portées
 - Les noms incluent les altérations (dièses ♯ et bémols b)
 - Par défaut : désactivé (cliquer sur l'option pour l'activer)
 
 #### Séparation des mains
+
 - Option activée par défaut
 - Sépare automatiquement main gauche / main droite
 
 #### Analyse musicale
+
 - **Détection automatique du tempo** : BPM détecté par analyse audio
+- **Détection automatique de la mesure** : 4/4, 3/4, 2/4, 3/8, 6/8, 9/8, 12/8
 - **Détection automatique de la tonalité** : Clé musicale détectée (armure)
 
 ### 5. Affichage interactif (post-traitement)
@@ -131,14 +149,17 @@ Le filtre **transkun-chord** combine deux étapes :
 > ℹ️ **Les accords et la pédale sont appliqués en post-traitement** sur la page de modification de la partition, directement dans votre navigateur. Vous pouvez donc afficher/masquer ces éléments **à tout moment** sans avoir besoin de re-transcrire.
 
 #### Accords jazz
+
 - ☑️ **Afficher les accords** : Affiche les symboles d'accords au-dessus de la portée de main droite (ex: C, G7, Am, Dm7b5)
 - Désactivé par défaut
 
 #### Pédale du sustain
+
 - ☑️ **Afficher la pédale** : Affiche les indications de pédale (S, T, pedal, lift) entre les deux portées
 - Activé par défaut
 
 #### Noms des notes les plus aigües
+
 - ☑️ **Noms des notes** : Affiche le nom de la note la plus haute de chaque accord (ex: "Si" au-dessus de l'accord)
 - Désactivé par défaut
 
@@ -147,18 +168,21 @@ Le filtre **transkun-chord** combine deux étapes :
 | Paramètre | Description |
 |-----------|-------------|
 | Tempo (manuel) | Surcharger le tempo détecté (40-300 BPM) |
-| Mesure | 4/4, 3/4, 2/4 ou 6/8 |
+| Mesure | 4/4, 3/4, 2/4, 3/8, 6/8, 9/8, 12/8 |
 | Tonalité/Armure | Surcharger la tonalité détectée (13 options) |
 | Sensibilité de détection | Ajuste la sensibilité (0.10-0.90). Plus c'est haut, plus la détection est stricte (moins de notes) |
 | Sensibilité de quantification | Ajuste la précision de la quantification (0.00-1.00). Plus c'est haut, plus les notes sont alignées sur la grille |
 
 ### 7. Transcription
+
 - Cliquez **Transcrire** → l'IA analyse le fichier localement (1-3 min)
-- La progression est affichée en temps réel
+- La progression est affichée en temps réel via SSE (Server-Sent Events)
+- Pipeline : Initialisation → Isolation Demucs → Transcription IA → Quantification → Construction partition → Export fichiers
 
 ### 8. Éditer la partition
 
 #### Sélection
+
 | Action | Raccourci |
 |--------|-----------|
 | Note suivante | → |
@@ -167,6 +191,7 @@ Le filtre **transkun-chord** combine deux étapes :
 | Descendre d'un demi-ton | ↓ ♭ / ↓ |
 
 #### Durée
+
 | Note | Raccourci | Valeur |
 |------|-----------|--------|
 | Ronde | W | 1.0 |
@@ -177,6 +202,7 @@ Le filtre **transkun-chord** combine deux étapes :
 | Pointée | . | +50% durée |
 
 #### Édition
+
 | Action | Bouton | Raccourci |
 |--------|--------|-----------|
 | Assigner main droite | ✋ Droite | — |
@@ -189,6 +215,7 @@ Le filtre **transkun-chord** combine deux étapes :
 | Insérer silence | ➕ Silence | — |
 
 ### 9. Lire la partition
+
 - Cliquez **▶ Lire** ou appuyez sur **Espace** pour lancer la lecture audio
 - Les notes jouées se surlignent en or en temps réel
 - La barre de progression avance et affiche le temps écoulé
@@ -196,12 +223,18 @@ Le filtre **transkun-chord** combine deux étapes :
 - Appuyez sur **Échap** pour arrêter la lecture
 - Moteur audio : **Son MIDI** (synthétiseur) ou **Piano concert** (SoundFont)
 
-### 10. Exporter
+### 10. Transposer
+
+- **Monter/Descendre** d'un demi-ton (boutons ↑ / ↓)
+- **Changer l'enharmonie** (♯/♭) : convertit les dièses en bémols et vice-versa
+
+### 11. Exporter
+
 | Format | Méthode | Description |
 |--------|---------|-------------|
 | **PDF** | 📄 PDF | Fenêtre d'impression du navigateur → "Enregistrer en PDF" |
 | **MIDI** | 🎵 MIDI | Fichier `partition_piano.mid` téléchargé |
-| **MusicXML** | Disponible | Fichier `.xml` au format MusicXML 3.0 |
+| **MusicXML** | 🎼 XML | Fichier `.xml` au format MusicXML (compatible MuseScore, Finale...) |
 
 ---
 
@@ -210,72 +243,154 @@ Le filtre **transkun-chord** combine deux étapes :
 ```
 audio-to-sheet/
 ├── backend/
-│   ├── app.py                 ← Serveur Flask (API REST)
-│   ├── transcriber.py         ← Pipeline de transcription complet
-│   ├── harmonic_filter.py     ← Filtrage harmonique (suppression notes fantômes)
-│   ├── midi_parser.py         ← Analyse MIDI (notes, header, tempo)
-│   ├── quantizer.py           ← Quantization adaptative
-│   ├── tonality_detector.py   ← Détection tonalité & tempo
-│   ├── midi_exporter.py       ← Export MIDI Type 0
-│   ├── score_builder.py       ← Génération MusicXML 3.0
-│   ├── voice_engine.py        ← Détection main gauche/droite
-│   └── requirements.txt       ← Dépendances Python
+│   ├── app.py                    ← Serveur Flask (API REST + SSE)
+│   ├── transcriber.py            ← Pipeline de transcription complet
+│   ├── harmonic_filter.py        ← Filtrage harmonique (notes fantômes)
+│   ├── harmonic_analyzer.py      ← Analyse des harmoniques
+│   ├── midi_parser.py            ← Analyse et génération MIDI
+│   ├── musicxml_exporter.py      ← Export MusicXML 3.0
+│   ├── tonality_detector.py      ← Détection tonalité & tempo
+│   ├── tonality_detector - Copie.py ← Variante de détection tonalité
+│   ├── quantizer.py              ← Quantification adaptative
+│   ├── tempo_quantizer.py        ← Quantification du tempo
+│   ├── voice_engine.py           ← Détection main gauche/droite
+│   ├── note_filter.py            ← Filtrage et nettoyage de notes
+│   ├── ornament_detector.py      ← Détection des ornements musicaux
+│   ├── rhythm_simplifier.py      ← Simplification rythmique
+│   ├── tempo_map.py              ← Cartographie du tempo
+│   ├── piano_roll.py             ← Génération du piano roll
+│   ├── ensemble_voter.py         ← Agrégation multi-modèles
+│   ├── score_builder.py          ← Construction de la partition
+│   ├── score_data.py             ← Structures de données du score
+│   ├── verovio_export.py         ← Export pour rendu Verovio
+│   ├── _fix_harmonic.py          ← Correctif filtrage harmonique
+│   ├── verify_prerequisites.py   ← Vérification des prérequis
+│   ├── run_hft.py                ← Exécution hFT-Transformer
+│   ├── requirements.txt          ← Dépendances Python
+│   ├── setup.py                  ← Installation
+│   ├── setup_gpu.bat             ← Setup GPU Windows
+│   ├── hft_transformer/          ← Modèle hFT-Transformer (Sony)
+│   │   ├── README.md
+│   │   ├── requirements.txt
+│   │   ├── model/
+│   │   ├── training/
+│   │   ├── evaluation/
+│   │   └── corpus/
+│   └── legacy/                   ← Code legacy (ancien code)
+│       ├── pipeline.py
+│       ├── server.py
+│       ├── patch_*.py
+│       └── old/
+│           ├── config.py
+│           ├── device_manager.py
+│           ├── exporters.py
+│           └── ...
 ├── frontend/
-│   ├── index.html             ← Interface principale
+│   ├── index.html                ← Interface principale
 │   ├── favicon.ico
 │   ├── css/
-│   │   └── style.css          ← Design dark mode
+│   │   └── style.css             ← Design dark mode premium
 │   └── js/
-│       ├── app.js             ← Logique principale + lecteur audio
-│       ├── renderer.js        ← Moteur VexFlow (rendu SVG)
-│       ├── editor.js          ← Éditeur interactif
-│       └── lib/               ← Bibliothèques tierces (VexFlow, etc.)
-├── uploads/                   ← Fichiers temporaires (auto-nettoyés)
-├── outputs/                   ← Fichiers MIDI/XML exportés
-├── run_prod.bat               ← Lanceur Windows
-├── TODO.txt                   ← Liste des tâches
-└── README.md                  ← Ce fichier
+│       ├── app.js                ← Logique principale + lecteur audio
+│       ├── renderer.js           ← Moteur VexFlow (rendu SVG)
+│       ├── editor.js             ← Éditeur interactif
+│       ├── ScorePlayer.js        ← Lecteur audio Score
+│       └── lib/
+│           ├── vexflow.js        ← Bibliothèque VexFlow
+│           ├── soundfont-player.min.js
+│           └── acoustic_grand_piano-mp3.js
+├── uploads/                      ← Fichiers temporaires uploadés (auto-nettoyés)
+├── outputs/                      ← Fichiers MIDI/XML exportés
+├── references/                   ← Références musicales
+├── docs/
+│   └── presets-musique-classique.md  ← Documentation presets classiques
+├── config.yaml                   ← Configuration globale
+├── proxy.py                      ← Proxy HTTP
+├── Lanceur test.bat              ← Lanceur automatique Windows
+├── arreter_serveur.bat           ← Arrêt du serveur
+├── AudioScore.vbs                ├── Lanceur VBScript
+├── AudioScore_private.vbs        ├── Lanceur VBScript privé
+└── README.md                     ← Ce fichier
 ```
 
 ---
 
 ## 🔧 Dépendances (toutes open source / gratuites)
 
-| Bibliothèque | Rôle | Licence |
-|---|---|---|
-| **Piano Transcription** | Transcription piano haute qualité | — |
-| **Demucs** | Séparation audio (isolation piano) | MIT |
-| **Flask** | Serveur web local | BSD |
-| **mido** | Lecture/écriture MIDI | MIT |
-| **pretty_midi** | Manipulation MIDI avancée | MIT |
-| **librosa** | Traitement audio | ISC |
-| **soundfile** | Lecture/écriture fichiers audio | — |
-| **numpy** | Calcul numérique | BSD |
-| **scipy** | Traitement du signal | BSD |
-| **onnxruntime** | Inférence modèle IA | MIT |
-| **VexFlow** | Rendu de partition en SVG | MIT |
-| **Web Audio API** | Synthèse sonore locale (intégrée au navigateur) | — |
+| Bibliothèque | Rôle | Licence | Statut |
+|---|---|---|---|
+| **Piano Transcription** | Transcription piano haute qualité | — | Installé via pip (git) |
+| **Transkun** | Transcripteur Transformer SOTA | — | Installé via pip |
+| **hFT-Transformer** (Sony) | Transcription audio Transformer | Apache 2.0 | ⚠️ Installation manuelle requise |
+| **Demucs** | Séparation audio (isolation piano) | MIT | Installé via pip |
+| **Flask** | Serveur web local | BSD | Installé via pip |
+| **Flask-CORS** | Gestion des CORS | MIT | Installé via pip |
+| **mido** | Lecture/écriture MIDI | MIT | Installé via pip |
+| **pretty_midi** | Manipulation MIDI avancée | MIT | Installé via pip |
+| **librosa** | Traitement audio | ISC | Installé via pip |
+| **soundfile** | Lecture/écriture fichiers audio | — | Installé via pip |
+| **numpy** | Calcul numérique | BSD | Installé via pip |
+| **scipy** | Traitement du signal | BSD | Installé via pip |
+| **madmom** | Beat tracking avancé | — | Installé via pip |
+| **pydantic** | Validation de données | MIT | Installé via pip |
+| **fastapi** | API framework (migration) | MIT | Installé via pip |
+| **uvicorn** | ASGI server | BSD | Installé via pip |
+| **onnxruntime** | Inférence modèle IA | MIT | Installé via pip |
+| **VexFlow** | Rendu de partition en SVG | MIT | Inclus dans frontend/ |
+| **Web Audio API** | Synthèse sonore locale | — | Intégrée au navigateur |
+| **music21** | Export MusicXML | GPL | ⚠️ Optionnel (commenté dans requirements.txt) |
 
 > **Aucun nouveau package n'est nécessaire** pour le filtrage harmonique. Le module `harmonic_filter.py` utilise uniquement `numpy` (déjà dans les dépendances).
+>
+> ⚠️ **hFT-Transformer** : Ce modèle doit être cloné manuellement dans le dossier `backend/hft_transformer/` depuis https://github.com/qiuqiangkong/hft-transformer. Il n'est pas installé via pip.
 
 ---
 
-## 🏗️ Architecture V3
+## 🏗️ Architecture
 
-Le projet V3 est organisé en phases modulaires :
+### Backend (Flask + Pydantic)
 
-| Phase | Module | Description | Statut |
-|-------|--------|-------------|--------|
-| 1 | `midi_parser.py` | Analyse MIDI brute | ✅ Complet |
-| 2 | `quantizer.py` | Quantization sur grille musicale | ✅ Complet |
-| 3 | `tonality_detector.py` | Détection tonalité & tempo | ✅ Complet |
-| 4 | `midi_exporter.py` | Export MIDI Type 0 | ✅ Complet |
-| 5 | `score_builder.py` | Génération MusicXML 3.0 | ✅ Complet |
-| 6 | `transcriber.py` | Orchestration pipeline complet | ✅ Complet |
-| 7 | `app.py` | API REST Flask + SSE | ✅ Complet |
-| 8 | `frontend/` | Interface utilisateur | 🔄 En cours |
+| Module | Responsabilité |
+|--------|----------------|
+| `app.py` | Serveur Flask, API REST, SSE streaming, validation Pydantic |
+| `transcriber.py` | Pipeline de transcription orchestré |
+| `harmonic_filter.py` | Filtrage harmonique (octave, quinte, harmoniques de pédale) |
+| `harmonic_analyzer.py` | Analyse des harmoniques |
+| `midi_parser.py` | Analyse et génération MIDI |
+| `musicxml_exporter.py` | Export MusicXML |
+| `tonality_detector.py` | Détection tonalité et tempo |
+| `quantizer.py` | Quantification sur grille musicale |
+| `tempo_quantizer.py` | Quantification du tempo |
+| `voice_engine.py` | Séparation main gauche/droite |
+| `note_filter.py` | Filtrage et nettoyage des notes |
+| `ornament_detector.py` | Détection des ornements musicaux |
+| `rhythm_simplifier.py` | Simplification rythmique |
+| `tempo_map.py` | Cartographie du tempo |
+| `piano_roll.py` | Génération du piano roll |
+| `ensemble_voter.py` | Agrégation multi-modèles |
+| `score_builder.py` | Construction de la partition |
+| `score_data.py` | Structures de données du score |
+| `verovio_export.py` | Export pour rendu Verovio |
+| `verify_prerequisites.py` | Vérification des prérequis |
+| `run_hft.py` | Exécution hFT-Transformer |
 
-> Voir `v3-specs/PROGRESS.md` pour le suivi détaillé de chaque phase.
+### Frontend
+
+| Fichier | Responsabilité |
+|---------|----------------|
+| `index.html` | Interface principale |
+| `css/style.css` | Design dark mode premium (glassmorphism, violet/gold) |
+| `js/app.js` | Logique principale, communication API, gestion des presets |
+| `js/renderer.js` | Moteur de rendu VexFlow (SVG) |
+| `js/editor.js` | Éditeur interactif de partition |
+| `js/ScorePlayer.js` | Lecteur audio avec synchronisation |
+
+### Pipeline de transcription
+
+```
+Upload audio → Demucs (isolation) → Transcripteur IA → Quantification
+    → Harmonic filter → Voice separation → MIDI/MusicXML export
+```
 
 ---
 
@@ -288,7 +403,7 @@ Le projet V3 est organisé en phases modulaires :
 → Vérifiez que le port 5000 n'est pas déjà utilisé : `netstat -ano | findstr :5000`
 
 **"VexFlow introuvable"**
-→ Vérifiez votre connexion et relancez run_prod.bat (il retéléchargera VexFlow).
+→ Vérifiez votre connexion et relancez Lanceur test.bat (il retéléchargera VexFlow).
 
 **La transcription est trop dense / trop sparse**
 → Ajustez le curseur "Sensibilité de détection" (bas = moins de notes, haut = plus de notes).
@@ -303,6 +418,10 @@ Le projet V3 est organisé en phases modulaires :
 → Les modèles IA (surtout Demucs et Piano Transcription) peuvent prendre du temps au premier téléchargement. Soyez patient.
 → Si vous avez des problèmes de dépendances, vérifiez que vous avez un compilateur C++ installé pour Windows.
 
+**GPU non détecté**
+→ Pour NVIDIA CUDA : installez PyTorch avec CUDA support
+→ Pour Intel ARC A770 : `pip install torch --index-url https://download.pytorch.org/whl/xpu`
+
 ---
 
 ## 📄 Licence
@@ -312,7 +431,5 @@ Ce projet est distribué en open source. Chaque bibliothèque conserve sa licenc
 ---
 
 ## 🤝 Contribution
-
-Les phases V3 sont documentées dans le dossier `v3-specs/phases/`. Chaque phase est autonome et peut être implémentée indépendamment.
 
 Pour signaler un bug ou proposer une amélioration, veuillez ouvrir une issue sur le dépôt.

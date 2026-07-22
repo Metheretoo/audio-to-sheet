@@ -54,11 +54,6 @@ transcriber:
         onset_weight: 0.9
         pitch_weight: 1.1
         duration_weight: 1.1
-      - name: "basic_pitch"    # Retiré : qualité inférieure sur piano classique
-        weight: 1.0
-        onset_weight: 1.0
-        pitch_weight: 1.0
-        duration_weight: 0.8
       - name: "hft"            # Modèle Sony hFT-Transformer — excellent pour piano classique
         weight: 1.3
         onset_weight: 1.1
