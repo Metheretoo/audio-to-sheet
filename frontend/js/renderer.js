@@ -1213,8 +1213,7 @@ class ScoreRenderer {
       // Les noms de notes restent proches du beam, les accords seront ajustés au-dessus.
       let baseLabelY = effectiveTopY - STEM_CLEARANCE;
 
-      // Dédoublonnage (évite d'afficher "Ré" deux fois si accord à l'octave)
-      const names = [...new Set(info.trebleNoteNames)];
+      const names = info.trebleNoteNames;
 
       // Empilement vertical: note grave en bas (baseLabelY), note aiguë en haut
       names.forEach((name, i) => {
