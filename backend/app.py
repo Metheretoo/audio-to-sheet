@@ -109,6 +109,8 @@ from verify_prerequisites import verify_prerequisites
 
 # Configuration du chemin du frontend
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOADS_DIR = os.path.abspath(os.path.join(BASE_DIR, '..', 'uploads'))
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 # ── Logging vers fichier (lisible sans console) ───────────────────────────────
 LOG_PATH = os.path.join(BASE_DIR, 'server.log')
@@ -167,7 +169,7 @@ def allowed_file(filename):
 
 def get_temp_dir(prefix):
     """Crée un répertoire temporaire avec un prefix unique."""
-    dir_name = tempfile.mkdtemp(prefix=prefix + '_')
+    dir_name = tempfile.mkdtemp(prefix=prefix + '_', dir=UPLOADS_DIR)
     return dir_name
 
 
@@ -247,6 +249,17 @@ def _cleanup_old_jobs():
                      if now - job['created_at'] > 900]
         for jid in to_remove:
             del _transcription_jobs[jid]
+            
+    import shutil
+    try:
+        if os.path.exists(UPLOADS_DIR):
+            for d in os.listdir(UPLOADS_DIR):
+                d_path = os.path.join(UPLOADS_DIR, d)
+                if os.path.isdir(d_path) and (d.startswith('audio_') or d.startswith('output_')):
+                    if now - os.path.getmtime(d_path) > 900:
+                        shutil.rmtree(d_path, ignore_errors=True)
+    except Exception as e:
+        logger.warning(f"Erreur nettoyage UPLOADS_DIR: {e}")
 
 
 def _run_pipeline_thread(job_id, input_path, output_dir, options):
@@ -300,6 +313,11 @@ def _run_pipeline_thread(job_id, input_path, output_dir, options):
             _transcription_jobs[job_id]['status'] = 'error'
             _transcription_jobs[job_id]['error'] = str(e)
             _transcription_jobs[job_id]['message'] = f'❌ Transcription échouée: {e}'
+    finally:
+        import shutil
+        upload_dir = os.path.dirname(input_path)
+        if os.path.exists(upload_dir) and os.path.basename(upload_dir).startswith('audio_'):
+            shutil.rmtree(upload_dir, ignore_errors=True)
 @app.route('/api/device', methods=['GET'])
 def device_compat():
     """Alias compatible avec le frontend qui attend `/api/device`.
@@ -827,7 +845,7 @@ def export_musicxml():
 def get_midi(job_id):
     """Télécharge le fichier MIDI généré."""
     # Chercher le fichier .mid dans le dossier output
-    output_base = tempfile.gettempdir()
+    output_base = UPLOADS_DIR
     search_dirs = [d for d in os.listdir(output_base)
                    if d.startswith(f'output_{job_id}') or d.startswith(f'output_')]
 
@@ -850,7 +868,7 @@ def get_midi(job_id):
 def get_score(job_id):
     """Télécharge le fichier MusicXML généré."""
     # Chercher le fichier .xml dans le dossier output
-    output_base = tempfile.gettempdir()
+    output_base = UPLOADS_DIR
     search_dirs = [d for d in os.listdir(output_base)
                    if d.startswith(f'output_{job_id}') or d.startswith(f'output_')]
 

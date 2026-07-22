@@ -230,12 +230,6 @@ audio-to-sheet/
 │       ├── renderer.js        ← Moteur VexFlow (rendu SVG)
 │       ├── editor.js          ← Éditeur interactif
 │       └── lib/               ← Bibliothèques tierces (VexFlow, etc.)
-├── v3-specs/                  ← Spécifications V3
-│   ├── README.md              ← Guide principal V3
-│   ├── ARCHITECTURE.md        ← Architecture du système
-│   ├── PROGRESS.md            ← Suivi d'avancement
-│   ├── phases/                ← Phases d'implémentation
-│   └── references/            ← Documentation de référence
 ├── uploads/                   ← Fichiers temporaires (auto-nettoyés)
 ├── outputs/                   ← Fichiers MIDI/XML exportés
 ├── run_prod.bat               ← Lanceur Windows
