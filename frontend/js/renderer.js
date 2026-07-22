@@ -541,11 +541,6 @@ class ScoreRenderer {
             console.error('[NoteLabel] Error extracting vfX/vfY:', e);
           }
 
-          if (i === 0 && measureIndex === 1 && hand === 'treble') {
-             console.log(`[NoteLabel DEBUG] StaveNote methods - getAbsoluteX: ${!!sn.getAbsoluteX}, getNoteHeadBeginX: ${!!sn.getNoteHeadBeginX}, getX: ${!!sn.getX}, getYs: ${!!sn.getYs}`);
-             console.log(`[NoteLabel DEBUG] Calculated vfX: ${vfX}, vfY: ${vfY}`);
-          }
-
           let vfStaveY = null;
           try {
             if (sn.getStave) vfStaveY = sn.getStave().getY();
@@ -574,11 +569,11 @@ class ScoreRenderer {
               const a = m[2] ? (m[2][0]==='#' ? m[2].length : -m[2].length) : 0;
               return parseInt(m[3], 10) * 12 + s + a;
             };
-            // Trier du plus aigu au plus grave, dédoublonner les noms
+            // Trier du plus aigu au plus grave
             const names = [...nd.keys]
               .sort((a, b) => midiFromKey(b) - midiFromKey(a))
               .map(vfToFr);
-            info.trebleNoteNames = [...new Set(names)];
+            info.trebleNoteNames = names;
           }
 
           this.noteMap.set(nd.id, info);
@@ -658,6 +653,16 @@ class ScoreRenderer {
     /* Points */
     for (let d = 0; d < (nd.dots || 0); d++) {
       sn.addModifier(new VF.Dot(), 0);
+    }
+
+    // [P-Arp] Accolade ondulée pour accords arpégés
+    if (nd.isArpeggio) {
+      // NOTE: User requested UP direction always, but we'll use arpeggioDirection if provided,
+      // which defaults to 'up' in score_builder anyway.
+      const direction = nd.arpeggioDirection === 'down'
+        ? VF.Stroke.Type.ROLL_DOWN
+        : VF.Stroke.Type.ROLL_UP;
+      sn.addModifier(new VF.Stroke(direction), 0);
     }
 
     sn.setAttribute('id', 'vf-' + nd.id);

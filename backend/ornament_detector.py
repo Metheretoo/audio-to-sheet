@@ -1,10 +1,11 @@
 """
-ornament_detector.py — Détection d'ornements musicaux (Phase 4)
+ornament_detector.py — Détection d'ornements musicaux (Phase 4 + Arpège)
 
 Détection :
   - Appoggiatures → grace notes en MusicXML
   - Trilles → symbole tr en MusicXML
   - Rythmes pointés → identification pour durées canoniques
+  - Accords arpégés → fusion de notes rapprochées + symbole ondulé [P-Arp]
 
 Ce module prend une liste de QuantizedNote et retourne :
   - Des flags par note (estAppoggiatura, estTrille, etc.)
@@ -55,12 +56,29 @@ class DottedRhythmInfo:
 
 
 @dataclass
+class ArpeggioInfo:
+    """Information sur un accord arpégé détecté. [P-Arp]
+    
+    Un accord arpégé est une séquence de notes ASCENDANTES jouées très
+    rapidement (gap ≤ max_gap_beats) qui seront fusionnées en un seul accord
+    avec le symbole d'ondulation verticale (ROLL_UP).
+    """
+    start_index: int          # Index de la 1ère note du groupe dans la liste originale
+    end_index: int            # Index de la dernière note
+    pitches: List[int]        # Pitches MIDI de toutes les notes (ordre croissant)
+    beat_position: float      # Position de début (= beat_position de la 1ère note)
+    total_span_beats: float   # Durée totale du groupe (last.start - first.start)
+    note_count: int           # Nombre de notes fusionnées
+
+
+@dataclass
 class OrnamentResult:
     """Résultat complet de détection d'ornements."""
     original_notes: List[QuantizedNote] = field(default_factory=list)
     appoggiaturas: List[AppoggiaturaInfo] = field(default_factory=list)
     trills: List[TrillInfo] = field(default_factory=list)
     dotted_rhythms: List[DottedRhythmInfo] = field(default_factory=list)
+    arpeggios: List['ArpeggioInfo'] = field(default_factory=list)  # [P-Arp]
     
     # Mapping note_index → type d'ornement
     note_ornaments: Dict[int, str] = field(default_factory=dict)
@@ -89,12 +107,12 @@ class OrnamentDetector:
             thresholds: OrnamentThresholds ou dict de seuils
         """
         if thresholds is None:
-            from models import OrnamentThresholds
-            thresholds = OrnamentThresholds()
+            from types import SimpleNamespace
+            thresholds = SimpleNamespace()
         
         if isinstance(thresholds, dict):
-            from models import _dict_to_ornament_thresholds
-            thresholds = _dict_to_ornament_thresholds(thresholds)
+            from types import SimpleNamespace
+            thresholds = SimpleNamespace(**thresholds)
         
         self.thresholds = thresholds
     
@@ -145,6 +163,12 @@ class OrnamentDetector:
         
         # 3. Détecter les rythmes pointés (P4.4)
         result.dotted_rhythms = self._detect_dotted_rhythms(notes, beat_positions)
+        
+        # 4. Détecter les accords arpégés ascendants (P-Arp)
+        result.arpeggios = self._detect_arpeggios(notes, beat_positions, result.note_ornaments)
+        for arp in result.arpeggios:
+            for idx in range(arp.start_index, arp.end_index + 1):
+                result.note_ornaments[idx] = 'arpeggio'
         
         # Construire les structures pour MusicXML
         result.grace_notes = self._build_grace_notes_xml(result.appoggiaturas)
@@ -323,6 +347,92 @@ class OrnamentDetector:
         
         return trills
     
+    def _detect_arpeggios(
+        self,
+        notes: List[QuantizedNote],
+        beat_positions: List[float],
+        already_ornamental: Dict[int, str],
+    ) -> List[ArpeggioInfo]:
+        """
+        Détecte les accords arpégés ASCENDANTS. [P-Arp]
+        
+        Règle :
+        - Suite de ≥ 2 notes STRICTEMENT ASCENDANTES en pitch
+        - Gap entre notes consécutives ≤ arpeggio_max_gap_beats (ex: 0.125 = double-croche)
+        - Intervalle minimal entre notes ≥ arpeggio_min_pitch_interval demi-tons (pas un trille)
+        - Durée totale du groupe ≤ arpeggio_max_total_span_beats
+        - Les notes déjà identifiées comme appoggiatures ou trilles sont exclues
+        
+        Si la suite est descendante → ce ne sont pas des arpèges, les notes
+        restent telles quelles avec leur durée propre.
+        """
+        arpeggios = []
+        
+        max_gap = getattr(self.thresholds, 'arpeggio_max_gap_beats', 0.125)
+        min_notes = getattr(self.thresholds, 'arpeggio_min_notes', 2)
+        min_interval = getattr(self.thresholds, 'arpeggio_min_pitch_interval', 3)
+        max_span = getattr(self.thresholds, 'arpeggio_max_total_span_beats', 1.5)
+        
+        i = 0
+        while i < len(notes):
+            # Ignorer les notes déjà identifiées comme ornements
+            if i in already_ornamental:
+                i += 1
+                continue
+            
+            # Chercher une séquence ascendante rapprochée
+            seq_start = i
+            seq_end = i
+            prev_pitch = notes[i].pitch_midi
+            
+            j = i + 1
+            while j < len(notes):
+                if j in already_ornamental:
+                    break
+                
+                gap = beat_positions[j] - beat_positions[j - 1]
+                curr_pitch = notes[j].pitch_midi
+                
+                # Le gap doit être court
+                if gap > max_gap:
+                    break
+                
+                # La note doit être STRICTEMENT plus haute (arpège ascendant)
+                if curr_pitch <= prev_pitch:
+                    break
+                
+                # L'intervalle entre cette note et la précédente doit être ≥ min_interval
+                # (pour éviter de confondre avec un trille ou un semi-ton de passage)
+                if curr_pitch - prev_pitch < min_interval:
+                    break
+                
+                # La durée totale du groupe ne doit pas dépasser max_span
+                span = beat_positions[j] - beat_positions[seq_start]
+                if span > max_span:
+                    break
+                
+                seq_end = j
+                prev_pitch = curr_pitch
+                j += 1
+            
+            seq_length = seq_end - seq_start + 1
+            if seq_length >= min_notes:
+                pitches = [notes[k].pitch_midi for k in range(seq_start, seq_end + 1)]
+                total_span = beat_positions[seq_end] - beat_positions[seq_start]
+                arpeggios.append(ArpeggioInfo(
+                    start_index=seq_start,
+                    end_index=seq_end,
+                    pitches=pitches,
+                    beat_position=beat_positions[seq_start],
+                    total_span_beats=round(total_span, 4),
+                    note_count=seq_length,
+                ))
+                i = seq_end + 1  # Sauter tout le groupe
+            else:
+                i += 1
+        
+        return arpeggios
+
     def _detect_dotted_rhythms(
         self,
         notes: List[QuantizedNote],

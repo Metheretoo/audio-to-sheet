@@ -22,7 +22,7 @@ from tempo_map import TempoMap
 
 # [P4] Import du détecteur d'ornements
 try:
-    from ornament_detector import OrnamentDetector, OrnamentResult
+    from ornament_detector import OrnamentDetector, OrnamentResult, ArpeggioInfo
     _has_ornament_detector = True
 except ImportError:
     _has_ornament_detector = False
@@ -318,6 +318,47 @@ def build_score(
     return result
 
 
+# ── Détection et fusion des arpèges ───────────────────────────────────────────
+
+def _merge_arpeggios(notes: List[QuantizedNote], key_sig: str = 'C') -> List[QuantizedNote]:
+    """
+    Identifie les séquences de notes correspondant à des arpèges ascendants
+    et les fusionne en un seul accord pour le rendu VexFlow.
+    """
+    if not _has_ornament_detector or not notes:
+        return notes
+
+    # On utilise un seuil basique pour la détection à la volée s'il n'y a pas d'OrnamentResult global
+    detector = OrnamentDetector()
+    beat_positions = [n.beat_position for n in notes]
+    # On n'a pas accès à already_ornamental ici, mais c'est un cas fallback de toute façon
+    arpeggios = detector._detect_arpeggios(notes, beat_positions, {})
+    
+    if not arpeggios:
+        return notes
+        
+    merged_notes = list(notes)
+    
+    # Appliquer de la fin vers le début pour ne pas perturber les index
+    for arp in reversed(arpeggios):
+        # Créer une copie de la première note de l'arpège (qui sera la note de base de l'accord)
+        base_note = merged_notes[arp.start_index]
+        base_note._is_arpeggio = True
+        base_note._arpeggio_direction = 'up'
+        
+        # Supprimer les autres notes de l'arpège pour ne garder que la base (VexFlow fera l'accord avec les pitches originaux ? Non, il faut garder les notes mais leur donner la MÊME position !)
+        # Ah ! build_voice_vexflow regroupe les notes par beat_position !
+        # Donc pour fusionner en accord, il suffit d'aligner la beat_position de toutes les notes sur celle de la première.
+        for i in range(arp.start_index + 1, arp.end_index + 1):
+            merged_notes[i].beat_position = base_note.beat_position
+            merged_notes[i]._is_arpeggio = True
+            
+        # Aligner la durée de la base sur celle de la plus longue (la dernière)
+        last_note = merged_notes[arp.end_index]
+        base_note.beat_duration = max(base_note.beat_duration, (last_note.beat_position_original if hasattr(last_note, 'beat_position_original') else last_note.beat_position) + last_note.beat_duration - base_note.beat_position)
+
+    return merged_notes
+
 # ── Construction d'une voix ───────────────────────────────────────────────────
 
 def build_voice_vexflow(
@@ -332,12 +373,13 @@ def build_voice_vexflow(
 
     Algorithme « lecture naturelle » :
     1. Si pas de notes → retourner [silence pleine mesure]
-    2. Grouper les notes simultanées en accords (beat_position identique)
-    3. Pour chaque accord :
+    2. Détecter et fusionner les accords arpégés ascendants (P-Arp)
+    3. Grouper les notes simultanées en accords (beat_position identique)
+    4. Pour chaque accord :
        - La durée est l'IOI (distance jusqu'à la prochaine note) sauf si
          le sustain mesuré est clairement staccato (< 40 % de l'IOI ET < 0.5 beat).
        - On évite ainsi les silences parasites entre deux notes liées/tenues.
-    4. Combler les silences réels (gaps entre notes non liées) en fin de mesure.
+    5. Combler les silences réels (gaps entre notes non liées) en fin de mesure.
 
     IMPORTANT :
     - Travailler en beats RELATIFS à la mesure (m_start = 0 pour cette mesure)
@@ -352,6 +394,9 @@ def build_voice_vexflow(
         dur_str, dots = beats_to_duration(beats_per_measure)
         rest_key = REST_POSITIONS[hand].get(dur_str, REST_KEY)
         return [_make_rest(rest_key, dur_str, dots, m_start, beats_per_measure, hand)]
+
+    # [P-Arp] Détecter et fusionner les accords arpégés AVANT le groupement
+    notes = _merge_arpeggios(notes, key_sig)
 
     # Grouper par position (accords)
     chords: Dict[float, List[QuantizedNote]] = {}
@@ -1029,15 +1074,28 @@ def _build_ornaments_json(
             'dottedRatio': dr.dotted_ratio,
             'measure': measure_num,
         })
+        
+    arpeggios = []
+    for arp in getattr(ornament_result, 'arpeggios', []):
+        measure_num = int(arp.beat_position / beats_per_measure) + 1 if beats_per_measure > 0 else 1
+        arpeggios.append({
+            'type': 'arpeggio',
+            'startBeat': round(arp.beat_position, 3),
+            'totalSpanBeats': round(arp.total_span_beats, 3),
+            'noteCount': arp.note_count,
+            'measure': measure_num,
+        })
     
     return {
         'appoggiaturas': appoggiaturas,
         'trills': trills,
         'dottedRhythms': dotted_rhythms,
+        'arpeggios': arpeggios,
         'summary': {
             'appoggiaturaCount': len(appoggiaturas),
             'trillCount': len(trills),
             'dottedRhythmCount': len(dotted_rhythms),
+            'arpeggioCount': len(arpeggios),
             'totalOrnamentedNotes': len(ornament_result.note_ornaments),
         }
     }

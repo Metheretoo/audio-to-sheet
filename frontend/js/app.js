@@ -434,8 +434,9 @@ function initTranscriptionOptions() {
         // Comparer les anciens et nouveaux états pour déterminer si un re-render est nécessaire
         const needsFullRender = (oldShowPedals !== renderer.showPedals) || (oldShowChordSymbols !== renderer.showChordSymbols);
         if (needsFullRender) {
-          // Re-render complet pour mettre à jour pédale et accords
-          renderer.render(window.currentScoreData);
+          // Re-render complet pour mettre à jour pédale et accords en utilisant les données de l'éditeur pour conserver les modifs
+          const scoreToRender = editor ? editor.getScoreData() : window.currentScoreData;
+          renderer.render(scoreToRender);
           // Après le render, le highlight de sélection est perdu, le restaurer
           if (editor && editor.selectedNoteId) {
             renderer.highlightNote(editor.selectedNoteId, editor.selectedKeyIdx);
@@ -987,10 +988,12 @@ function handleTranscriptionResult(result) {
     }
 
     if (renderer) {
-      const showPedalCb = document.getElementById('show-pedal');
-      const showChordsCb = document.getElementById('show-chords');
+      const showPedalCb = document.getElementById('show-pedal-toolbar');
+      const showChordsCb = document.getElementById('show-chords-toolbar');
+      const showHighestNoteCb = document.getElementById('show-highest-note-toolbar');
       renderer.showPedals = showPedalCb ? showPedalCb.checked : true;
-      renderer.showChordSymbols = showChordsCb ? showChordsCb.checked : false;
+      renderer.showChordSymbols = showChordsCb ? showChordsCb.checked : true;
+      renderer.showHighestNote = showHighestNoteCb ? showHighestNoteCb.checked : true;
     }
 
     editor.loadScore(score_data);
