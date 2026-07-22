@@ -58,7 +58,7 @@ python app.py
 
 L'application propose 5 presets configurés automatiquement. Voici leur configuration **réelle** telle qu'implémentée dans `frontend/js/app.js` (fonction `applyPreset`) :
 
-| Mode | Transcripteur | Demucs | Quantification | Seuil onset | Rubato | Triolets | Filtrage harmonique | QS (sensitivity) | Usage recommandé |
+| Mode | Transcripteur | Demucs | Quantification | Seuil de détection | Rubato | Triolets | Filtrage harmonique | QS (sensitivity) | Usage recommandé |
 |------|---------------|--------|----------------|-------------|--------|----------|---------------------|------------------|------------------|
 | **Rapide** | hFT-Transformer | ❌ false | Light | 1.0 (max) | ❌ | ❌ | off | 0.5 | Aperçu immédiat sur fichier contenant uniquement du piano |
 | **Équilibré** ✅ (recommandé, actif par défaut) | Transkun | ❌ false | Standard | 0.55 | ❌ | ❌ | off | 0.5 | Majority des morceaux (Pop, YouTube, etc.) |
