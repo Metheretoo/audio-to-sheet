@@ -52,6 +52,9 @@ class ScoreRenderer {
         if (this._resizeTimeout) clearTimeout(this._resizeTimeout);
         this._resizeTimeout = setTimeout(() => {
           this.render(this._scoreData);
+          if (this.showHighestNote && typeof this.renderHighestNoteLabels === 'function') {
+            this.renderHighestNoteLabels();
+          }
         }, 150);
       }
     });
@@ -191,9 +194,6 @@ class ScoreRenderer {
             ? scoreData.uncertainNotes
             : []
         );
-        if (uncertainIds.size > 0) {
-          console.log(`[Renderer] P6 : ${uncertainIds.size} note(s) incertaine(s) détectée(s)`);
-        }
 
         try {
           this._renderJointVoices(
@@ -438,14 +438,8 @@ class ScoreRenderer {
       console.warn('[Renderer] Formatter conjoint :', e.message);
     }
 
-    // 5. Intercepter la création des groupes SVG
-    const createdGroups = [];
-    const originalOpenGroup = ctx.openGroup;
-    ctx.openGroup = function (className, id, options) {
-      const g = originalOpenGroup.call(this, className, id, options);
-      if (g) createdGroups.push(g);
-      return g;
-    };
+    // 5. Dessiner les voix
+    // Plus besoin d'intercepter openGroup, VexFlow assigne directement les IDs définis dans _buildStaveNote
 
     // Dessiner main droite
     if (trebleNotesData.length > 0) {
@@ -509,27 +503,16 @@ class ScoreRenderer {
     centerWholeRest(trebleNotesData, trebleStaveNotes, trebleStave);
     centerWholeRest(bassNotesData, bassStaveNotes, bassStave);
 
-    ctx.openGroup = originalOpenGroup;
-
     // 6. Enregistrement des éléments dans le DOM pour le clic et le surlignage
     const svg = this.container.querySelector('svg');
-    const noteGroups = createdGroups.filter(g => {
-      const cls = g.getAttribute('class');
-      return cls && cls.includes('stavenote');
-    });
 
-    let grpIdx = 0;
     const registerDOMInteractions = (staveNotes, notesData, hand) => {
       staveNotes.forEach((sn, i) => {
         const nd = notesData[i];
         try {
-          let el = noteGroups[grpIdx++] || null;
-          if (!el && sn.attrs) el = sn.attrs.el || sn.attrs.g;
-          if (!el) {
-            el = document.getElementById('vf-vf-' + nd.id) ||
-              document.getElementById('vf-' + nd.id) ||
-              (svg ? svg.querySelector('[id$="' + nd.id + '"]') : null);
-          }
+          // VexFlow 4.x: after draw(), the element is in the SVG with the id we set via sn.setAttribute
+          let el = svg ? svg.querySelector('#vf-' + nd.id) : null;
+          if (!el && svg) el = svg.querySelector('[id$="' + nd.id + '"]');
 
           let bb = null;
           if (el) {
@@ -539,7 +522,65 @@ class ScoreRenderer {
             } catch (_) { }
           }
 
-          const info = { bb, noteData: nd, measureIndex, hand, idx: i };
+          let vfX = null;
+          let vfY = null;
+          try {
+            if (sn.getAbsoluteX) {
+              vfX = sn.getAbsoluteX();
+            } else if (sn.getNoteHeadBeginX && sn.getNoteHeadEndX) {
+              vfX = (sn.getNoteHeadBeginX() + sn.getNoteHeadEndX()) / 2;
+            } else if (sn.getX) {
+              vfX = sn.getStave().getX() + sn.getX();
+            }
+            if (sn.getYs && sn.getYs().length > 0) {
+              vfY = Math.min(...sn.getYs());
+            } else if (sn.getStave) {
+              vfY = sn.getStave().getYForLine(0);
+            }
+          } catch (e) {
+            console.error('[NoteLabel] Error extracting vfX/vfY:', e);
+          }
+
+          if (i === 0 && measureIndex === 1 && hand === 'treble') {
+             console.log(`[NoteLabel DEBUG] StaveNote methods - getAbsoluteX: ${!!sn.getAbsoluteX}, getNoteHeadBeginX: ${!!sn.getNoteHeadBeginX}, getX: ${!!sn.getX}, getYs: ${!!sn.getYs}`);
+             console.log(`[NoteLabel DEBUG] Calculated vfX: ${vfX}, vfY: ${vfY}`);
+          }
+
+          let vfStaveY = null;
+          try {
+            if (sn.getStave) vfStaveY = sn.getStave().getY();
+          } catch (_) {}
+
+          const info = { el, bb, vfX, vfY, vfStaveY, noteData: nd, measureIndex, hand, idx: i };
+
+          // ── Stocker les noms de notes treble (toujours, depuis les données) ──
+          // IMPORTANT : cette logique ne doit PAS dépendre de la présence de `el`
+          // car l'élément SVG peut ne pas être encore trouvé lors de l'enregistrement.
+          if (!nd.isRest && hand === 'treble' && nd.keys && nd.keys.length > 0) {
+            const VF_FR = { C:'Do', D:'Ré', E:'Mi', F:'Fa', G:'Sol', A:'La', B:'Si' };
+            const vfToFr = k => {
+              const m = k.match(/^([a-gA-G])(#{1,2}|b{1,2})?/);
+              if (!m) return k;
+              const letter = m[1].toUpperCase();
+              const altMap = { '##':'x', '#':'♯', 'bb':'bb', 'b':'♭' };
+              const acc = altMap[m[2]] || '';
+              return (VF_FR[letter] || letter) + acc;
+            };
+            const midiFromKey = k => {
+              const m = k.match(/^([a-gA-G])(#{1,2}|b{1,2})?\/([0-9]+)/);
+              if (!m) return 0;
+              const letter = m[1].toUpperCase();
+              const s = { C:0,D:2,E:4,F:5,G:7,A:9,B:11 }[letter] || 0;
+              const a = m[2] ? (m[2][0]==='#' ? m[2].length : -m[2].length) : 0;
+              return parseInt(m[3], 10) * 12 + s + a;
+            };
+            // Trier du plus aigu au plus grave, dédoublonner les noms
+            const names = [...nd.keys]
+              .sort((a, b) => midiFromKey(b) - midiFromKey(a))
+              .map(vfToFr);
+            info.trebleNoteNames = [...new Set(names)];
+          }
+
           this.noteMap.set(nd.id, info);
 
           if (el) {
@@ -552,13 +593,13 @@ class ScoreRenderer {
               el.setAttribute('data-uncertain', 'true');
 
               // Ajouter un highlight SVG autour de la note
-              if (bb && bb.width > 0 && bb.height > 0) {
+              if (bb && bb.w > 0 && bb.h > 0) {
                 const highlight = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
                 highlight.setAttribute('class', 'uncertain-highlight');
                 highlight.setAttribute('x', bb.x - 4);
                 highlight.setAttribute('y', bb.y - 4);
-                highlight.setAttribute('width', bb.width + 8);
-                highlight.setAttribute('height', bb.height + 8);
+                highlight.setAttribute('width', bb.w + 8);
+                highlight.setAttribute('height', bb.h + 8);
                 highlight.setAttribute('rx', '4');
                 highlight.setAttribute('fill', 'none');
                 highlight.setAttribute('stroke', '#f59e0b');
@@ -582,23 +623,6 @@ class ScoreRenderer {
             if (!nd.isRest) {
               const heads = el.querySelectorAll('.vf-notehead');
               info.numHeads = heads.length || (nd.keys ? nd.keys.length : 1);
-              
-              // ── Ajouter data-* attributes pour les notes de la main droite ──
-              if (hand === 'treble' && !nd.isRest) {
-                // Chercher si cette note est dans highestNotes
-                const measureData = this._scoreData?.measures?.[info.measureIndex];
-                // m_start est maintenant envoyé directement par le backend
-                const m_start = measureData?.m_start ?? 0;
-                const beatInMeasure = nd.startBeat - m_start;
-                
-                const highestNote = measureData?.highestNotes?.find(
-                  hn => Math.abs(hn.beatInMeasure - beatInMeasure) < 0.05
-                );
-                if (highestNote) {
-                  el.setAttribute('data-highest-note', highestNote.noteName);
-                  el.setAttribute('data-highest-pitch', highestNote.midiPitch);
-                }
-              }
             }
           }
         } catch (err) {
@@ -617,11 +641,18 @@ class ScoreRenderer {
     const isRest = !!nd.isRest;
     const duration = isRest ? nd.durationStr + 'r' : nd.durationStr;
 
+    // GARDE-FOU : forcer la direction des queues (stems) par main
+    // - Main droite (treble) : queues TOUJOURS vers le haut (stem_direction = 1)
+    // - Main gauche (bass)   : queues TOUJOURS vers le bas (stem_direction = -1)
+    // Cela résout le bug où la direction changeait aléatoirement selon la hauteur de la note.
+    const stem_direction = hand === 'treble' ? 1 : -1;
+
     const sn = new VF.StaveNote({
       keys: nd.keys,
       duration: duration,
       dots: nd.dots || 0,
       clef: hand,
+      stem_direction: stem_direction,
     });
 
     /* Points */
@@ -1071,61 +1102,152 @@ class ScoreRenderer {
     svg.appendChild(text);
   }
 
-  /* ── Post-rendu : noms de notes les plus hautes (basé sur getBBox) ── */
-  /**
-   * Après le rendu VexFlow, parcourt tous les noteheads marqués avec
-   * data-highest-note et dessine le nom AU-DESSUS de chaque note.
-   * Les noms sont groupés dans un groupe SVG identifiable (#highest-note-labels)
-   * pour pouvoir être supprimés/modifiés individuellement.
-   */
+  /* ── Post-rendu : noms de notes (mode débutant) au-dessus du stem/beam ── */
   renderHighestNoteLabels() {
     const svg = this.container.querySelector('svg');
     if (!svg) return;
-    console.log('[Renderer] renderHighestNoteLabels() appelé, showHighestNote=', this.showHighestNote);
 
-    // Supprimer les anciens labels s'ils existent
     const oldGroup = svg.querySelector('#highest-note-labels');
     if (oldGroup) oldGroup.remove();
 
-    // Créer le groupe SVG pour les labels
+    if (!this.showHighestNote) return;
+
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.setAttribute('id', 'highest-note-labels');
     group.setAttribute('pointer-events', 'none');
     svg.appendChild(group);
 
-    // Trouver tous les noteheads marqués
-    const noteheads = svg.querySelectorAll('[data-highest-note]');
-    console.log('[Renderer] Noteheads trouvés avec data-highest-note:', noteheads.length);
-    if (noteheads.length === 0) return;
+    const FONT_SIZE = 11;
+    const LABEL_GAP = 13;   // espace vertical entre les noms d'un accord
+    const STEM_CLEARANCE = 6; // espace au-dessus du stem/beam
 
-    noteheads.forEach(nh => {
-      const noteName = nh.getAttribute('data-highest-note');
-      if (!noteName) return;
-
+    // Trouve le Y du haut du stem d'une note
+    const getStemTopY = (noteEl) => {
+      if (!noteEl) return null;
       try {
-        const bbox = nh.getBBox();
-        const cx = bbox.x + bbox.width / 2; // centre de la note
+        const stemEl = noteEl.querySelector('.vf-stem');
+        if (stemEl) {
+          const stemBBox = stemEl.getBBox();
+          if (stemBBox && stemBBox.height > 0) return stemBBox.y;
+        }
+        // Fallback: chercher une path fine et haute (un stem)
+        const paths = noteEl.querySelectorAll('path, rect');
+        let bestStemY = null;
+        paths.forEach(p => {
+          try {
+            const pb = p.getBBox();
+            if (pb.width < 5 && pb.height > 15) {
+              if (bestStemY === null || pb.y < bestStemY) bestStemY = pb.y;
+            }
+          } catch (_) {}
+        });
+        if (bestStemY !== null) return bestStemY;
+        // Dernier fallback: haut du groupe entier
+        const gb = noteEl.getBBox();
+        if (gb && gb.height > 0) return gb.y;
+      } catch (_) {}
+      return null;
+    };
 
-        // Position Y : au-dessus de la portée de la ligne de la note
-        // Le notehead est dans la portée treble ou bass selon la ligne
-        const noteTopY = bbox.y;
-        const y = noteTopY - 16; // 16 pixels au-dessus du notehead
+    // Trouve le Y du haut de la barre de ligature (beam) qui couvre la note
+    const getBeamTopY = (noteX, rowYTop, rowYBot) => {
+      const beamGroups = svg.querySelectorAll('g.vf-beam');
+      let bestBeamY = null;
+      beamGroups.forEach(bg => {
+        try {
+          const bgBBox = bg.getBBox();
+          // La beam doit être dans la même ligne horizontale
+          if (bgBBox.y < rowYTop || bgBBox.y + bgBBox.height > rowYBot) return;
+          // La beam doit couvrir la position X de la note
+          if (noteX < bgBBox.x - 15 || noteX > bgBBox.x + bgBBox.width + 15) return;
+          if (bestBeamY === null || bgBBox.y < bestBeamY) bestBeamY = bgBBox.y;
+        } catch (_) {}
+      });
+      return bestBeamY;
+    };
+
+    this.noteMap.forEach((info, id) => {
+      if (info.hand !== 'treble') return;
+      if (!info.trebleNoteNames || info.trebleNoteNames.length === 0) return;
+
+      // X précis depuis VexFlow
+      let cx = 0;
+      if (info.vfX !== null && info.vfX !== undefined) {
+        cx = info.vfX;
+      } else {
+        return;
+      }
+
+      // Chercher l'élément SVG de la note (pour lire le stem)
+      const noteEl = svg.querySelector('#vf-' + id) || svg.querySelector('[id$="' + id + '"]');
+
+      // Y du haut du stem
+      let stemTopY = getStemTopY(noteEl);
+      if (stemTopY === null) {
+        // Fallback sur les coordonnées VexFlow mathématiques
+        if (info.vfY !== null && info.vfY !== undefined) {
+          stemTopY = info.vfY - 10;
+        } else if (info.staveY !== undefined && info.staveY !== null) {
+          stemTopY = info.staveY - 10;
+        } else {
+          stemTopY = 50;
+        }
+      }
+
+      // Bande verticale de la ligne courante (pour isoler les beams de cette ligne)
+      const MPR = this._currentMPR || 4;
+      const row = Math.floor(info.measureIndex / MPR);
+      const rowYTop = row * this._rowHeight() + 20;
+      const rowYBot = rowYTop + this._rowHeight();
+
+      // Si la note fait partie d'un groupe lié (beam), utiliser le Y du beam
+      const beamY = getBeamTopY(cx, rowYTop, rowYBot);
+      const effectiveTopY = (beamY !== null && beamY < stemTopY) ? beamY : stemTopY;
+
+      // Y de base du label (juste au-dessus du stem ou du beam) — aucun clamp artificiel.
+      // Les noms de notes restent proches du beam, les accords seront ajustés au-dessus.
+      let baseLabelY = effectiveTopY - STEM_CLEARANCE;
+
+      // Dédoublonnage (évite d'afficher "Ré" deux fois si accord à l'octave)
+      const names = [...new Set(info.trebleNoteNames)];
+
+      // Empilement vertical: note grave en bas (baseLabelY), note aiguë en haut
+      names.forEach((name, i) => {
+        // names[0] = note la plus aiguë, names[N-1] = note la plus grave
+        const y = baseLabelY - ((names.length - 1 - i) * LABEL_GAP);
 
         const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         text.setAttribute('x', cx);
         text.setAttribute('y', y);
         text.setAttribute('font-family', 'Arial, sans-serif');
-        text.setAttribute('font-size', '11');
+        text.setAttribute('font-size', String(FONT_SIZE));
         text.setAttribute('font-weight', 'bold');
-        text.setAttribute('fill', '#7c3aed');  // violet pour distinguer visuellement
-        text.setAttribute('text-anchor', 'middle');  // centré sur la note
+        text.setAttribute('fill', '#7c3aed');
+        text.setAttribute('text-anchor', 'middle');
         text.setAttribute('font-style', 'italic');
-        text.setAttribute('pointer-events', 'none');
-        text.textContent = noteName;
+        text.textContent = name;
         group.appendChild(text);
-      } catch (e) {
-        console.warn('[Renderer] Erreur rendu label note:', e);
-      }
+      });
+
+      // Post-traitement : pousser les chord symbols AU-DESSUS des noms de notes.
+      // topLabelY est la baseline du label le plus aigu. Le texte monte visuellement
+      // d'environ FONT_SIZE pixels au-dessus de la baseline, donc on ajoute FONT_SIZE + 6.
+      const topLabelY = baseLabelY - ((names.length - 1) * LABEL_GAP);
+      const desiredChordY = topLabelY - FONT_SIZE - 6;
+      const chordTexts = svg.querySelectorAll('.chord-symbol');
+      chordTexts.forEach(ct => {
+        try {
+          const ctX = parseFloat(ct.getAttribute('x') || '0');
+          const ctY = parseFloat(ct.getAttribute('y') || '0');
+          // Même ligne (bande verticale) + proximité horizontale
+          if (Math.abs(ctX - cx) < 60 && ctY >= rowYTop && ctY <= rowYBot) {
+            // Ne déplacer que vers le haut (jamais vers le bas)
+            if (ctY > desiredChordY) {
+              ct.setAttribute('y', String(desiredChordY));
+            }
+          }
+        } catch (_) {}
+      });
     });
   }
 

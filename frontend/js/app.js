@@ -298,8 +298,8 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (showPedalCb) showPedalCb.checked = false;
-      if (showChordsCbToggle) showChordsCbToggle.checked = false;
+      // Les toggles d'affichage sont maintenant masqués avant transcription
+      // et synchronisés automatiquement après la transcription
       if (thresholdSlider) thresholdSlider.value = 1;
       setHarmonicFilterValue('off');
       if (qsSlider) qsSlider.value = 0.5;
@@ -317,8 +317,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (showPedalCb) showPedalCb.checked = false;
-      if (showChordsCbToggle) showChordsCbToggle.checked = false;
+      // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.55;
       if (qsSlider) qsSlider.value = 0.5;
       setHarmonicFilterValue('off');
@@ -335,8 +334,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
-      if (showPedalCb) showPedalCb.checked = false;
-      if (showChordsCbToggle) showChordsCbToggle.checked = false;
+      // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.33;
       if (qsSlider) qsSlider.value = 0.5;
       // Utiliser le filtrage harmonique Transkun v2 (agressif) — élimine les notes en trop
@@ -354,8 +352,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
-      if (showPedalCb) showPedalCb.checked = false;
-      if (showChordsCbToggle) showChordsCbToggle.checked = false;
+      // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.33;
       if (qsSlider) qsSlider.value = 1;
       setHarmonicFilterValue('classical');
@@ -373,8 +370,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
-      if (showPedalCb) showPedalCb.checked = false;
-      if (showChordsCbToggle) showChordsCbToggle.checked = true;
+      // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.67;
       if (qsSlider) qsSlider.value = 0.5;
       setHarmonicFilterValue('off');
@@ -418,21 +414,41 @@ function initTranscriptionOptions() {
   const qsSlider = document.getElementById('quantization-sensitivity');
   const qsDisplay = document.getElementById('quantization-sensitivity-display');
 
-  function refreshDisplayToggles() {
-    if (!renderer) return;
-    renderer.showPedals = showPedalCb ? showPedalCb.checked : true;
-    renderer.showChordSymbols = showChordsCbToggle ? showChordsCbToggle.checked : false;
-    renderer.showHighestNote = showHighestNoteCb ? showHighestNoteCb.checked : false;
-    if (window.currentScoreData) {
-      renderer.render(window.currentScoreData);
-      // Post-rendu : dessiner les noms de notes au-dessus des noteheads
-      if (renderer.showHighestNote) {
-        renderer.renderHighestNoteLabels();
-      } else {
-        renderer.clearHighestNoteLabels();
+    function refreshDisplayToggles() {
+      if (!renderer) return;
+      
+      // Sauvegarder les anciens états pour comparer
+      const oldShowPedals = renderer.showPedals;
+      const oldShowChordSymbols = renderer.showChordSymbols;
+      
+      // Mettre à jour les flags
+      renderer.showPedals = showPedalCb ? showPedalCb.checked : true;
+      renderer.showChordSymbols = showChordsCbToggle ? showChordsCbToggle.checked : false;
+      renderer.showHighestNote = showHighestNoteCb ? showHighestNoteCb.checked : false;
+      
+      // Pour les toggles "Accords" et "Pédale", on doit re-render le SVG complet
+      // car ces overlays sont dessinés pendant le render() (pas en post-render).
+      // Pour "Note la plus haute", on peut utiliser renderHighestNoteLabels() sans
+      // re-render car c'est un post-render.
+      if (window.currentScoreData) {
+        // Comparer les anciens et nouveaux états pour déterminer si un re-render est nécessaire
+        const needsFullRender = (oldShowPedals !== renderer.showPedals) || (oldShowChordSymbols !== renderer.showChordSymbols);
+        if (needsFullRender) {
+          // Re-render complet pour mettre à jour pédale et accords
+          renderer.render(window.currentScoreData);
+          // Après le render, le highlight de sélection est perdu, le restaurer
+          if (editor && editor.selectedNoteId) {
+            renderer.highlightNote(editor.selectedNoteId, editor.selectedKeyIdx);
+          }
+        }
+        // Pour "Note la plus haute", utiliser le post-render
+        if (renderer.showHighestNote && typeof renderer.renderHighestNoteLabels === 'function') {
+          renderer.renderHighestNoteLabels();
+        } else if (!renderer.showHighestNote && typeof renderer.clearHighestNoteLabels === 'function') {
+          renderer.clearHighestNoteLabels();
+        }
       }
     }
-  }
   if (showPedalCb) showPedalCb.addEventListener('change', refreshDisplayToggles);
   if (showChordsCbToggle) showChordsCbToggle.addEventListener('change', refreshDisplayToggles);
   if (showHighestNoteCb) showHighestNoteCb.addEventListener('change', refreshDisplayToggles);
@@ -579,7 +595,6 @@ function subscribeToProgress(jobId) {
     currentSSESource = null;
   }
 
-  console.log('[SSE] Connexion au flux de progression pour job', jobId);
   setLoadingStep('🔍 Connexion au serveur…');
 
   currentSSESource = new EventSource(`/api/transcribe-progress/${jobId}`);
@@ -588,7 +603,6 @@ function subscribeToProgress(jobId) {
    currentSSESource.addEventListener('status', (e) => {
      try {
        const data = JSON.parse(e.data);
-       console.log('[SSE] Status:', data);
        
        const step = data.step || 'transcription';
        const message = data.message || 'Transcription en cours…';
@@ -631,7 +645,6 @@ function subscribeToProgress(jobId) {
 
   // Événement de succès
   currentSSESource.addEventListener('done', async (e) => {
-    console.log('[SSE] Job terminé:', e.data);
     
     // Fermer le flux SSE
     if (currentSSESource) {
@@ -651,9 +664,7 @@ function subscribeToProgress(jobId) {
     const maxRetries = 3;
     for (let i = 0; i < maxRetries; i++) {
       try {
-        console.log(`[SSE] Tentative ${i + 1}/${maxRetries} pour récupérer le résultat...`);
         const res = await fetch(`/api/transcribe/result/${jobId}`);
-        console.log('[SSE] Response status:', res.status);
         
         if (!res.ok) {
           console.warn(`[SSE] HTTP ${res.status}, retry ${i + 1}/${maxRetries}...`);
@@ -665,10 +676,8 @@ function subscribeToProgress(jobId) {
         }
         
         const result = await res.json();
-        console.log('[SSE] Result JSON:', result);
         
         if (result.success && result.score_data && result.score_data.measures && result.score_data.measures.length > 0) {
-          console.log('[SSE] ✅ Transcription réussie, affichage de la partition...');
           handleTranscriptionResult(result);
         } else {
           console.warn('[SSE] Resultat sans score_data, tentative de polling direct...');
@@ -698,12 +707,10 @@ function subscribeToProgress(jobId) {
         if (res.ok) {
           const result = await res.json();
           if (result.success && result.score_data) {
-            console.log('[SSE] ✅ Résultat trouvé via fallback polling');
             handleTranscriptionResult(result);
             return;
           }
         } else if (res.status === 202) {
-          console.log(`[SSE] Job encore en cours (${i + 1}/10)...`);
           continue;
         }
       } catch (err) {
@@ -724,7 +731,6 @@ function subscribeToProgress(jobId) {
     
     // ReadyState: 0=CONNECTING, 1=OPEN, 2=CLOSED
     if (e.currentTarget.readyState === EventSource.CLOSED) {
-      console.log('[SSE] Connexion fermée par le serveur (job terminé ou expiré)');
     } else {
       console.warn('[SSE] Erreur HTTP détectée, tentative de récupération du résultat...');
       // Tenter de récupérer le résultat quand même
@@ -732,7 +738,6 @@ function subscribeToProgress(jobId) {
         .then(res => res.json())
         .then(result => {
           if (result.success && result.score_data) {
-            console.log('[SSE] Résultat récupéré malgré l\'erreur SSE');
             handleTranscriptionResult(result);
           } else {
             console.error('[SSE] Résultat d\'erreur:', result);
@@ -997,6 +1002,25 @@ function handleTranscriptionResult(result) {
     if (renderer && renderer.showHighestNote && typeof renderer.renderHighestNoteLabels === 'function') {
       renderer.renderHighestNoteLabels();
     }
+
+    // ✅ Synchroniser les cases à cocher AVEC TOUS LES TOGGLES (section upload + toolbar)
+    // (les presets ont configuré les valeurs par défaut, mais le renderer a ses propres valeurs)
+    const showPedalCb = document.getElementById('show-pedal');
+    const showPedalToolbarCb = document.getElementById('show-pedal-toolbar');
+    const showChordsCb = document.getElementById('show-chords');
+    const showChordsToolbarCb = document.getElementById('show-chords-toolbar');
+    const showHighestNoteCb = document.getElementById('show-highest-note');
+    const showHighestNoteToolbarCb = document.getElementById('show-highest-note-toolbar');
+    if (showPedalCb) showPedalCb.checked = renderer.showPedals;
+    if (showPedalToolbarCb) showPedalToolbarCb.checked = renderer.showPedals;
+    if (showChordsCb) showChordsCb.checked = renderer.showChordSymbols;
+    if (showChordsToolbarCb) showChordsToolbarCb.checked = renderer.showChordSymbols;
+    if (showHighestNoteCb) showHighestNoteCb.checked = renderer.showHighestNote;
+    if (showHighestNoteToolbarCb) showHighestNoteToolbarCb.checked = renderer.showHighestNote;
+
+    // ✅ Afficher les toggles de la section upload (masqués par défaut)
+    const displaySettings = document.querySelector('.show-before-score');
+    if (displaySettings) displaySettings.style.display = '';
 
     if (score_data.tempoMapMethod) { updateTempoDisplay(score_data); initTempoSlider(score_data.tempo); }
     if (score_data.detectedMeter) updateDetectedMeter(score_data.detectedMeter);
@@ -1339,7 +1363,18 @@ function exportPdf() {
 
     const rowRenderer = new ScoreRenderer(div.id);
     rowRenderer._forcedMPR = PDF_MPR;
+
+    // Transmettre l'état des options d'affichage au rowRenderer PDF
+    if (typeof renderer !== 'undefined' && renderer) {
+      rowRenderer.showPedals = renderer.showPedals;
+      rowRenderer.showChordSymbols = renderer.showChordSymbols;
+      rowRenderer.showHighestNote = renderer.showHighestNote;
+    }
+
     rowRenderer.render(rowScoreData);
+    if (rowRenderer.showHighestNote && typeof rowRenderer.renderHighestNoteLabels === 'function') {
+      rowRenderer.renderHighestNoteLabels();
+    }
 
     const svgEl = div.querySelector('svg');
     if (svgEl) {

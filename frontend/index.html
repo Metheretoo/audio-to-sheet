@@ -256,7 +256,8 @@
             </div>
 
 <!-- Affichage de la partition (togglable sans re-transcrire) -->
-<div class="setting-item">
+<!-- MASQUÉ avant transcription : les options sont configurées par les presets -->
+<div class="setting-item show-before-score" style="display: none;">
   <span class="setting-label">Affichage de la partition</span>
   <div class="checkbox-group">
     <label class="checkbox-label-premium" title="Affiche/masque les annotations de pédale forte (Ped. / *) sans avoir besoin de relancer la transcription.">
@@ -268,7 +269,7 @@
       <span>Noms d'accords</span>
     </label>
     <label class="checkbox-label-premium" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) entre la portée et les accords, pour aider les débutants. Ne nécessite pas de relancer la transcription.">
-      <input type="checkbox" id="show-highest-note" />
+      <input type="checkbox" id="show-highest-note" checked />
       <span>Note la plus haute</span>
     </label>
   </div>
@@ -490,7 +491,7 @@
             <span>Pédale</span>
           </label>
           <label class="display-toggle" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) au-dessus de la portée">
-            <input type="checkbox" id="show-highest-note-toolbar" />
+            <input type="checkbox" id="show-highest-note-toolbar" checked />
             <span>Note la plus haute</span>
           </label>
         </div>
@@ -585,10 +586,10 @@
   <!-- ══ Scripts ════════════════════════════════════════════════════════════════ -->
   <script src="/js/lib/soundfont-player.min.js"></script>
   <script src="/js/lib/vexflow.js"></script>
-<script src="/js/renderer.js?v=19"></script>
-<script src="/js/editor.js?v=19"></script>
+<script src="/js/renderer.js?v=35"></script>
+<script src="/js/editor.js?v=20"></script>
   <script src="/static/js/ScorePlayer.js?v=13"></script>
-<script src="/static/js/app.js?v=20"></script>
+<script src="/static/js/app.js?v=21"></script>
 
 </body>
 

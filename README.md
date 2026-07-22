@@ -113,6 +113,11 @@ Le filtre **transkun-chord** combine deux étapes :
 | **Standard** | **1/16** | **Meilleur compromis lisibilité (Pop/Variété)** |
 | Forte | 1/8 | Simplification maximale (débutants) |
 
+#### Noms des notes en français
+- **Activer** : Affiche les noms des notes (Do, Ré, Mi, Fa, Sol, La, Si) au-dessus des portées
+- Les noms incluent les altérations (dièses ♯ et bémols b)
+- Par défaut : désactivé (cliquer sur l'option pour l'activer)
+
 #### Séparation des mains
 - Option activée par défaut
 - Sépare automatiquement main gauche / main droite
@@ -121,7 +126,23 @@ Le filtre **transkun-chord** combine deux étapes :
 - **Détection automatique du tempo** : BPM détecté par analyse audio
 - **Détection automatique de la tonalité** : Clé musicale détectée (armure)
 
-### 5. Paramètres manuels (optionnels)
+### 5. Affichage interactif (post-traitement)
+
+> ℹ️ **Les accords et la pédale sont appliqués en post-traitement** sur la page de modification de la partition, directement dans votre navigateur. Vous pouvez donc afficher/masquer ces éléments **à tout moment** sans avoir besoin de re-transcrire.
+
+#### Accords jazz
+- ☑️ **Afficher les accords** : Affiche les symboles d'accords au-dessus de la portée de main droite (ex: C, G7, Am, Dm7b5)
+- Désactivé par défaut
+
+#### Pédale du sustain
+- ☑️ **Afficher la pédale** : Affiche les indications de pédale (S, T, pedal, lift) entre les deux portées
+- Activé par défaut
+
+#### Noms des notes les plus aigües
+- ☑️ **Noms des notes** : Affiche le nom de la note la plus haute de chaque accord (ex: "Si" au-dessus de l'accord)
+- Désactivé par défaut
+
+### 6. Paramètres manuels (optionnels)
 
 | Paramètre | Description |
 |-----------|-------------|
@@ -131,11 +152,11 @@ Le filtre **transkun-chord** combine deux étapes :
 | Sensibilité de détection | Ajuste la sensibilité (0.10-0.90). Plus c'est haut, plus la détection est stricte (moins de notes) |
 | Sensibilité de quantification | Ajuste la précision de la quantification (0.00-1.00). Plus c'est haut, plus les notes sont alignées sur la grille |
 
-### 6. Transcription
+### 7. Transcription
 - Cliquez **Transcrire** → l'IA analyse le fichier localement (1-3 min)
 - La progression est affichée en temps réel
 
-### 7. Éditer la partition
+### 8. Éditer la partition
 
 #### Sélection
 | Action | Raccourci |
@@ -167,7 +188,7 @@ Le filtre **transkun-chord** combine deux étapes :
 | Insérer note | ➕ Note | — |
 | Insérer silence | ➕ Silence | — |
 
-### 8. Lire la partition
+### 9. Lire la partition
 - Cliquez **▶ Lire** ou appuyez sur **Espace** pour lancer la lecture audio
 - Les notes jouées se surlignent en or en temps réel
 - La barre de progression avance et affiche le temps écoulé
@@ -175,7 +196,7 @@ Le filtre **transkun-chord** combine deux étapes :
 - Appuyez sur **Échap** pour arrêter la lecture
 - Moteur audio : **Son MIDI** (synthétiseur) ou **Piano concert** (SoundFont)
 
-### 9. Exporter
+### 10. Exporter
 | Format | Méthode | Description |
 |--------|---------|-------------|
 | **PDF** | 📄 PDF | Fenêtre d'impression du navigateur → "Enregistrer en PDF" |
