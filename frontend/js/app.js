@@ -235,6 +235,7 @@ function initTranscriptionOptions() {
   const detectKeyCb = document.getElementById('detect-key');
   const enableRubato = document.getElementById('enable-rubato');
   const enableTriplets = document.getElementById('enable-triplets');
+  const enable_smooth = document.getElementById('enable-smooth');
   const showChordsCb = document.getElementById('show-chords');
   const thresholdSlider = document.getElementById('onset-threshold');
 
@@ -302,6 +303,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
+      if (enable_smooth) enable_smooth.checked = false;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       // et synchronisés automatiquement après la transcription
       if (thresholdSlider) thresholdSlider.value = 0.85;  // basse sensibilité max
@@ -322,6 +324,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
+      if (enable_smooth) enable_smooth.checked = false;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.55;
       if (qsSlider) qsSlider.value = 0.5;
@@ -339,6 +342,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
+      if (enable_smooth) enable_smooth.checked = false;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.33;
       if (qsSlider) qsSlider.value = 0.5;
@@ -357,6 +361,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
+      if (enable_smooth) enable_smooth.checked = false;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.20;  // Seuil le plus bas pour capter le maximum de notes
       if (qsSlider) qsSlider.value = 1;
@@ -380,6 +385,7 @@ function initTranscriptionOptions() {
       if (detectKeyCb) detectKeyCb.checked = true;
       if (enableRubato) enableRubato.checked = false;
       if (enableTriplets) enableTriplets.checked = false;
+      if (enable_smooth) enable_smooth.checked = true;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       if (thresholdSlider) thresholdSlider.value = 0.67;
       if (qsSlider) qsSlider.value = 0.5;
@@ -892,20 +898,20 @@ async function startTranscription(file) {
   formData.append('detect_tempo', document.getElementById('detect-tempo')?.checked ? 'true' : 'false');
   formData.append('detect_meter', document.getElementById('detect-meter')?.checked ? 'true' : 'false');
   formData.append('detect_key', document.getElementById('detect-key')?.checked ? 'true' : 'false');
-    formData.append('enable_rubato', document.getElementById('enable-rubato')?.checked ? 'true' : 'false');
-    formData.append('enable_triplets', document.getElementById('enable-triplets')?.checked ? 'true' : 'false');
-    formData.append('enable_smooth', document.getElementById('enable-smooth')?.checked ? 'true' : 'false');
-    formData.append('strict_mode', document.getElementById('strict-mode')?.checked ? 'true' : 'false');
-    const qsSliderLocal = document.getElementById('quantization-sensitivity');
-    if (qsSliderLocal && qsSliderLocal.value !== '') {
-     formData.append('quantization_sensitivity', qsSliderLocal.value);
-   }
-   const harmonicFilterEl = document.getElementById('harmonic-filter');
-   const harmonicFilterValue = harmonicFilterEl?.value || 'classical';
-   formData.append('harmonic_filter', harmonicFilterValue);
+  formData.append('enable_rubato', document.getElementById('enable-rubato')?.checked ? 'true' : 'false');
+  formData.append('enable_triplets', document.getElementById('enable-triplets')?.checked ? 'true' : 'false');
+  formData.append('enable_smooth', document.getElementById('enable-smooth')?.checked ? 'true' : 'false');
+  formData.append('strict_mode', document.getElementById('strict-mode')?.checked ? 'true' : 'false');
+  const qsSliderLocal = document.getElementById('quantization-sensitivity');
+  if (qsSliderLocal && qsSliderLocal.value !== '') {
+   formData.append('quantization_sensitivity', qsSliderLocal.value);
+  }
+  const harmonicFilterEl = document.getElementById('harmonic-filter');
+  const harmonicFilterValue = harmonicFilterEl?.value || 'classical';
+  formData.append('harmonic_filter', harmonicFilterValue);
    
-   // Si le mode 'custom' est actif, envoyer les paramètres personnalisés
-   if (harmonicFilterValue === 'custom') {
+  // Si le mode 'custom' est actif, envoyer les paramètres personnalisés
+  if (harmonicFilterValue === 'custom') {
      const customVel = document.getElementById('custom-harmonic-vel')?.value;
      const customProt = document.getElementById('custom-harmonic-prot')?.value;
      const customTime = document.getElementById('custom-harmonic-time')?.value;
@@ -922,25 +928,25 @@ async function startTranscription(file) {
     if (customBass !== undefined && customBass !== '') {
       formData.append('harmonic_bass_threshold', customBass);
     }
-    }
+  }
 
-    // NOUVEAU : Protection basse (main gauche)
-    const bassProtection = document.getElementById('bass-protection')?.value;
-    if (bassProtection !== undefined && bassProtection !== '') {
-      formData.append('bass_protection_velocity', bassProtection);
-    }
+  // NOUVEAU : Protection basse (main gauche)
+  const bassProtection = document.getElementById('bass-protection')?.value;
+  if (bassProtection !== undefined && bassProtection !== '') {
+    formData.append('bass_protection_velocity', bassProtection);
+  }
     
-    // NOUVEAU : Seuil adaptatif basses/aigus
-    const useAdaptiveThreshold = document.getElementById('use-adaptive-threshold')?.checked;
-    formData.append('use_adaptive_threshold', useAdaptiveThreshold);
+  // NOUVEAU : Seuil adaptatif basses/aigus
+  const useAdaptiveThreshold = document.getElementById('use-adaptive-threshold')?.checked;
+  formData.append('use_adaptive_threshold', useAdaptiveThreshold);
     
-    const bassOnsetThreshold = document.getElementById('bass-onset-threshold')?.value;
-    if (bassOnsetThreshold !== undefined && bassOnsetThreshold !== '') {
-      formData.append('bass_onset_threshold', bassOnsetThreshold);
-    }
+  const bassOnsetThreshold = document.getElementById('bass-onset-threshold')?.value;
+  if (bassOnsetThreshold !== undefined && bassOnsetThreshold !== '') {
+    formData.append('bass_onset_threshold', bassOnsetThreshold);
+  }
     
-    formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
-   formData.append('key_sig', document.getElementById('key-sig-upload')?.value || document.getElementById('key-sig-toolbar')?.value || 'C');
+  formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
+  formData.append('key_sig', document.getElementById('key-sig-upload')?.value || document.getElementById('key-sig-toolbar')?.value || 'C');
 
   const tempoOverride = document.getElementById('tempo-override')?.value;
   if (tempoOverride) formData.append('tempo', tempoOverride);

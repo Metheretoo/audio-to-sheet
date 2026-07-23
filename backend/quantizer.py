@@ -421,32 +421,31 @@ def quantize_notes(
     base_cfg = PRESETS.get(quantization_level, PRESETS['standard'])
 
     # ── Mapping de sensibilité continu (0.0-1.0) ─────────────────────────────
-    # Identique à tempo_quantizer.py V4 : _sensitivity_to_config()
-    # - 0.0  → quantification minimale (grille très fine 1/64, pas de snap)
-    # - 0.5  → interpolation mi-chemin entre minimal et preset de base
-    # - 1.0  → preset de base inchangé
+    # - 0.0  → quantification minimale (grille très fine 1/64, pas de snap, pas de fusion)
+    # - 0.5  → quantification intermédiaire (grille 1/16, snap doux, durée min courte)
+    # - 1.0  → preset de base inchangé (quantification forte selon le preset)
     #
-    # Le mapping utilise une courbe smoothstep pour plus de contrôle dans la zone
-    # 0.3-0.7 où les artéfacts de transcription sont les plus critiques.
+    # Le mapping utilise une interpolation linéaire simple pour un contrôle prévisible.
     if quantization_sensitivity is not None:
         s = max(0.0, min(1.0, float(quantization_sensitivity)))
         
-        # Mapping non-linéaire : smoothstep unique sur [0, 1]
-        # t_curve = 0 → config minimale, t_curve = 1 → preset de base
-        # À s=0.5 : t_curve = 0.5 (milieu exact)
-        t_curve = s * s * (3 - 2 * s)  # smoothstep
+        # Configuration "minimale" (s=0) : quantification au plus proche sans snap
+        MIN_GRID_DIV = 64        # grille très fine = pas d'aimantation
+        MIN_SNAP = 0.0           # aucun snap à la grille
+        MIN_DUR = 0.0625         # durée min = 1/64 (très court)
+        MIN_MERGE = 0.0          # aucune fusion
         
-        # Configuration "minimale" (s=0) : grille très fine, pas de snap, pas de fusion
-        MIN_GRID_DIV = 64
-        MIN_SNAP = 0.0
-        MIN_DUR = 0.0625  # 1/64
-        MIN_MERGE = 0.0
+        # Configuration "maximale" (s=1) = preset de base
+        MAX_GRID_DIV = base_cfg['grid_div']
+        MAX_SNAP = base_cfg['snap_threshold_ratio']
+        MAX_DUR = base_cfg['min_duration_beats']
+        MAX_MERGE = base_cfg['merge_threshold_beats']
         
-        # Interpoler entre config minimale et preset de base
-        grid_div = max(4, min(64, int(round(MIN_GRID_DIV + (base_cfg['grid_div'] - MIN_GRID_DIV) * t_curve))))
-        snap_threshold_ratio = MIN_SNAP + (base_cfg['snap_threshold_ratio'] - MIN_SNAP) * t_curve
-        min_dur = MIN_DUR + (base_cfg['min_duration_beats'] - MIN_DUR) * t_curve
-        merge_thr = MIN_MERGE + (base_cfg['merge_threshold_beats'] - MIN_MERGE) * t_curve
+        # Interpolation linéaire : s=0 → MIN, s=1 → MAX
+        grid_div = int(round(MIN_GRID_DIV + (MAX_GRID_DIV - MIN_GRID_DIV) * s))
+        snap_threshold_ratio = MIN_SNAP + (MAX_SNAP - MIN_SNAP) * s
+        min_dur = MIN_DUR + (MAX_DUR - MIN_DUR) * s
+        merge_thr = MIN_MERGE + (MAX_MERGE - MIN_MERGE) * s
         allow_triplets = base_cfg['allow_triplets']
     else:
         grid_div = base_cfg['grid_div']

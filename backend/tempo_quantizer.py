@@ -45,34 +45,38 @@ def _sensitivity_to_config(base: QuantizerConfig, sensitivity: float) -> Quantiz
     """
     Affine le preset de base selon la sensibilité continue [0.0-1.0].
     
-    - 0.0  → quantification minimale (grille très fine 1/64, pas de snap)
-    - 0.5  → interpolation mi-chemin entre minimal et preset de base
-    - 1.0  → preset de base inchangé
+    - 0.0  → quantification minimale (grille très fine 1/64, pas de snap, pas de fusion)
+    - 0.5  → quantification intermédiaire (grille 1/16, snap doux, durée min courte)
+    - 1.0  → preset de base inchangé (quantification forte selon le preset)
     
-    Le mapping utilise une courbe smoothstep pour plus de contrôle dans la zone
-    0.3-0.7 où les artéfacts de transcription sont les plus critiques.
+    Le mapping utilise une courbe linéaire simple pour un contrôle prévisible.
     """
     # Clamp dans [0, 1]
     s = max(0.0, min(1.0, sensitivity))
     
-    # Mapping non-linéaire : smoothstep unique sur [0, 1]
-    # t_curve = 0 → config minimale, t_curve = 1 → preset de base
-    # À s=0.5 : t_curve = 0.5 (milieu exact)
-    t_curve = s * s * (3 - 2 * s)  # smoothstep
+    # Configuration "minimale" (s=0) : quantification au plus proche sans snap
+    MIN_GRID_DIV = 64        # grille très fine = pas d'aimantation
+    MIN_SNAP = 0.0           # aucun snap à la grille
+    MIN_DUR = 0.0625         # durée min = 1/64 (très court)
+    MIN_MERGE = 0.0          # aucune fusion
+    MIN_GAP = 0.0            # pas d'écart min
     
-    # Configuration "minimale" (s=0) : grille très fine, pas de snap, pas de fusion
-    MIN_GRID_DIV = 64
-    MIN_SNAP = 0.0
-    MIN_DUR = 0.0625  # 1/64
-    MIN_MERGE = 0.0
-    MIN_GAP = 0.05
+    # Configuration "maximale" (s=1) = preset de base
+    MAX_GRID_DIV = base.grid_div     # ex: 8 pour classique
+    MAX_SNAP = base.snap_threshold_ratio
+    MAX_DUR = base.min_duration_beats
+    MAX_MERGE = base.merge_threshold_beats
+    MAX_GAP = base.min_note_gap_beats
     
-    # Interpoler entre config minimale et preset de base
-    grid_div = max(4, min(64, int(round(MIN_GRID_DIV + (base.grid_div - MIN_GRID_DIV) * t_curve))))
-    snap_threshold = MIN_SNAP + (base.snap_threshold_ratio - MIN_SNAP) * t_curve
-    min_dur = MIN_DUR + (base.min_duration_beats - MIN_DUR) * t_curve
-    merge_thr = MIN_MERGE + (base.merge_threshold_beats - MIN_MERGE) * t_curve
-    min_gap = MIN_GAP + (base.min_note_gap_beats - MIN_GAP) * t_curve
+    # Interpolation linéaire : s=0 → MIN, s=1 → MAX
+    grid_div = int(round(MIN_GRID_DIV + (MAX_GRID_DIV - MIN_GRID_DIV) * s))
+    snap_threshold = MIN_SNAP + (MAX_SNAP - MIN_SNAP) * s
+    min_dur = MIN_DUR + (MAX_DUR - MIN_DUR) * s
+    merge_thr = MIN_MERGE + (MAX_MERGE - MIN_MERGE) * s
+    min_gap = MIN_GAP + (MAX_GAP - MIN_GAP) * s
+    
+    # grid_div doit être un diviseur valide de grille (puissance de 2 ou 12 pour ternaire)
+    grid_div = max(4, min(64, grid_div))
     
     return QuantizerConfig(
         grid_div=grid_div,

@@ -708,12 +708,17 @@ def run_piano_transcription(audio_path, options):
     print(f"[Piano] Inference sur: {actual_device}")
     
     # Préparer les options de transcription
-    # piano_transcription_inference ne supporte PAS onset_threshold par note (dict).
-    # On utilise donc un seuil UNIFORME (déjà appliqué via transcriber.onset_threshold).
-    transcribe_opts = None
+    # piano_transcription_inference supporte onset_threshold/frame_threshold/offset_threshold
+    # comme arguments NOMMÉS de .transcribe(). C'est PLUS fiable que les attributs.
+    print(f"[Piano] Seuils passés à transcribe() : onset={onset_threshold:.2f}, frame={frame_threshold:.2f}, offset={offset_threshold:.2f}")
     
     with torch.no_grad():
-        transcribed_dict = transcriber.transcribe(audio, transcribe_opts)
+        transcribed_dict = transcriber.transcribe(
+            audio,
+            onset_threshold=onset_threshold,
+            frame_threshold=frame_threshold,
+            offset_threshold=offset_threshold,
+        )
     
     prof.stop()
 
