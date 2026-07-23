@@ -645,8 +645,10 @@ class ScoreRenderer {
     // Correction octave pour la clé de Fa (bass clef)
     // VexFlow interprète les octaves une octave trop bas avec la clef de Fa.
     // On ajoute +1 à l'octave pour compenser.
+    // IMPORTANT : ne PAS décaler les silences (isRest) — leur position verticale
+    // dépend de leur durée et ne doit pas être modifiée.
     let keys = nd.keys;
-    if (hand === 'bass') {
+    if (hand === 'bass' && !nd.isRest) {
       keys = nd.keys.map(k => {
         const parts = k.split('/');
         if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {

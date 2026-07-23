@@ -17,7 +17,7 @@
           <fifths>1</fifths>
           <mode>major</mode>
         </key>
-        <time><beats>3</beats><beat-type>4</beat-type></time>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
         <clef>
           <sign>G</sign>
           <line>2</line>
@@ -29,6 +29,7 @@
           <line>4</line>
         </clef>
       </attributes>
+      <direction><direction-type><ped type="stop"/></direction-type></direction>
       <direction><direction-type><ped type="stop"/></direction-type></direction>
       <note>
         <pitch>
@@ -58,9 +59,15 @@
       </note>
       <note default-y="-100">
         <rest/>
-        <duration>24</duration>
+        <duration>32</duration>
         <voice>1</voice>
-        <type>quarter</type>
+        <type>half</type>
+      </note>
+      <note default-y="-100">
+        <rest/>
+        <duration>8</duration>
+        <voice>1</voice>
+        <type>eighth</type>
       </note>
       <note>
         <pitch>
@@ -119,24 +126,37 @@
           <step>D</step>
           <octave>3</octave>
         </pitch>
-        <duration>4</duration>
+        <duration>12</duration>
         <offset>43</offset>
         <voice>2</voice>
-        <type>16th</type>
+        <type>eighth</type>
+      </note>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>8</duration>
+        <offset>56</offset>
+        <voice>2</voice>
+        <type>eighth</type>
+      </note>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>2</duration>
+        <offset>64</offset>
+        <voice>2</voice>
+        <type>32nd</type>
       </note>
     </measure>
     <measure number="2">
-      <direction><direction-type><ped type="stop"/></direction-type></direction>
       <harmony default-y="40">
         <root><root-step>G</root-step></root>
         <kind text="">/D</kind>
       </harmony>
-      <note default-y="-100">
-        <rest/>
-        <duration>16</duration>
-        <voice>1</voice>
-        <type>quarter</type>
-      </note>
       <note>
         <pitch>
           <step>D</step>
@@ -163,34 +183,20 @@
           <step>A</step>
           <octave>5</octave>
         </pitch>
-        <duration>8</duration>
+        <duration>32</duration>
         <offset>88</offset>
+        <voice>1</voice>
+        <type>half</type>
+      </note>
+      <note default-y="-100">
+        <rest/>
+        <duration>8</duration>
         <voice>1</voice>
         <type>eighth</type>
       </note>
       <note default-y="-150">
         <rest/>
-        <duration>6</duration>
-        <voice>2</voice>
-        <type>16th</type>
-      </note>
-      <note>
-        <pitch>
-          <step>D</step>
-          <octave>3</octave>
-        </pitch>
         <duration>8</duration>
-        <offset>56</offset>
-        <voice>2</voice>
-        <type>eighth</type>
-      </note>
-      <note>
-        <pitch>
-          <step>D</step>
-          <octave>3</octave>
-        </pitch>
-        <duration>12</duration>
-        <offset>64</offset>
         <voice>2</voice>
         <type>eighth</type>
       </note>
@@ -219,42 +225,8 @@
           <step>G</step>
           <octave>3</octave>
         </pitch>
-        <duration>2</duration>
+        <duration>12</duration>
         <offset>96</offset>
-        <voice>2</voice>
-        <type>32nd</type>
-      </note>
-    </measure>
-    <measure number="3">
-      <note default-y="-100">
-        <rest/>
-        <duration>32</duration>
-        <voice>1</voice>
-        <type>half</type>
-      </note>
-      <note>
-        <pitch>
-          <step>D</step>
-          <octave>5</octave>
-        </pitch>
-        <duration>8</duration>
-        <offset>128</offset>
-        <voice>1</voice>
-        <type>eighth</type>
-      </note>
-      <note>
-        <pitch>
-          <step>D</step>
-          <octave>5</octave>
-        </pitch>
-        <duration>8</duration>
-        <offset>136</offset>
-        <voice>1</voice>
-        <type>eighth</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>8</duration>
         <voice>2</voice>
         <type>eighth</type>
       </note>
@@ -284,37 +256,31 @@
         <voice>2</voice>
         <type>16th</type>
       </note>
-      <note>
-        <pitch>
-          <step>G</step>
-          <octave>3</octave>
-        </pitch>
-        <duration>12</duration>
-        <offset>128</offset>
-        <voice>2</voice>
-        <type>eighth</type>
-      </note>
-      <note>
-        <pitch>
-          <step>G</step>
-          <octave>3</octave>
-        </pitch>
-        <duration>4</duration>
-        <offset>140</offset>
-        <voice>2</voice>
-        <type>16th</type>
-      </note>
     </measure>
-    <measure number="4">
+    <measure number="3">
       <harmony default-y="40">
         <root><root-step>G</root-step></root>
         <kind text="">maj7</kind>
       </harmony>
-      <note default-y="-100">
-        <rest/>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
         <duration>8</duration>
+        <offset>128</offset>
         <voice>1</voice>
         <type>eighth</type>
+      </note>
+      <note>
+        <pitch>
+          <step>D</step>
+          <octave>5</octave>
+        </pitch>
+        <duration>16</duration>
+        <offset>136</offset>
+        <voice>1</voice>
+        <type>quarter</type>
       </note>
       <note>
         <pitch>
@@ -332,9 +298,23 @@
         <voice>1</voice>
         <type>eighth</type>
       </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>8</duration>
+      <note>
+        <pitch>
+          <step>G</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>12</duration>
+        <offset>128</offset>
+        <voice>2</voice>
+        <type>eighth</type>
+      </note>
+      <note>
+        <pitch>
+          <step>G</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>12</duration>
+        <offset>140</offset>
         <voice>2</voice>
         <type>eighth</type>
       </note>
@@ -379,7 +359,7 @@
         <type>eighth</type>
       </note>
     </measure>
-    <measure number="5">
+    <measure number="4">
       <direction><direction-type><ped type="stop"/></direction-type></direction>
       <harmony default-y="40">
         <root><root-step>B</root-step></root>
@@ -422,15 +402,32 @@
       </note>
       <note default-y="-100">
         <rest/>
-        <duration>16</duration>
+        <duration>24</duration>
         <voice>1</voice>
         <type>quarter</type>
       </note>
       <note default-y="-100">
         <rest/>
-        <duration>6</duration>
+        <duration>4</duration>
         <voice>1</voice>
         <type>16th</type>
+      </note>
+      <note>
+        <pitch>
+          <step>F</step>
+          <alter>1</alter>
+          <octave>4</octave>
+        </pitch>
+        <duration>2</duration>
+        <offset>248</offset>
+        <voice>1</voice>
+        <type>32nd</type>
+      </note>
+      <note default-y="-100">
+        <rest/>
+        <duration>8</duration>
+        <voice>1</voice>
+        <type>eighth</type>
       </note>
       <note>
         <pitch>
@@ -477,10 +474,20 @@
           <step>A</step>
           <octave>3</octave>
         </pitch>
-        <duration>4</duration>
+        <duration>12</duration>
         <offset>236</offset>
         <voice>2</voice>
-        <type>16th</type>
+        <type>eighth</type>
+      </note>
+      <note>
+        <pitch>
+          <step>A</step>
+          <octave>3</octave>
+        </pitch>
+        <duration>8</duration>
+        <offset>248</offset>
+        <voice>2</voice>
+        <type>eighth</type>
       </note>
       <note default-y="-150">
         <rest/>
@@ -489,31 +496,9 @@
         <type>16th</type>
       </note>
     </measure>
-    <measure number="6">
+    <measure number="5">
       <direction><direction-type><ped type="stop"/></direction-type></direction>
-      <note default-y="-100">
-        <rest/>
-        <duration>6</duration>
-        <voice>1</voice>
-        <type>16th</type>
-      </note>
-      <note>
-        <pitch>
-          <step>F</step>
-          <alter>1</alter>
-          <octave>4</octave>
-        </pitch>
-        <duration>2</duration>
-        <offset>248</offset>
-        <voice>1</voice>
-        <type>32nd</type>
-      </note>
-      <note default-y="-100">
-        <rest/>
-        <duration>8</duration>
-        <voice>1</voice>
-        <type>eighth</type>
-      </note>
+      <direction><direction-type><ped type="stop"/></direction-type></direction>
       <note>
         <pitch>
           <step>C</step>
@@ -530,31 +515,15 @@
           <step>D</step>
           <octave>5</octave>
         </pitch>
-        <duration>16</duration>
+        <duration>48</duration>
         <offset>267</offset>
         <voice>1</voice>
-        <type>quarter</type>
+        <type>half</type>
       </note>
       <note default-y="-100">
         <rest/>
         <duration>8</duration>
         <voice>1</voice>
-        <type>eighth</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>6</duration>
-        <voice>2</voice>
-        <type>16th</type>
-      </note>
-      <note>
-        <pitch>
-          <step>A</step>
-          <octave>3</octave>
-        </pitch>
-        <duration>8</duration>
-        <offset>248</offset>
-        <voice>2</voice>
         <type>eighth</type>
       </note>
       <note>
@@ -566,12 +535,6 @@
         <offset>256</offset>
         <voice>2</voice>
         <type>eighth</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>4</duration>
-        <voice>2</voice>
-        <type>16th</type>
       </note>
       <note>
         <pitch>
@@ -598,10 +561,32 @@
           <step>D</step>
           <octave>3</octave>
         </pitch>
-        <duration>2</duration>
+        <duration>32</duration>
         <offset>288</offset>
         <voice>2</voice>
-        <type>32nd</type>
+        <type>half</type>
+      </note>
+      <note default-y="-150">
+        <rest/>
+        <duration>4</duration>
+        <voice>2</voice>
+        <type>16th</type>
+      </note>
+    </measure>
+    <measure number="6">
+      <direction><direction-type><ped type="stop"/></direction-type></direction>
+      <direction><direction-type><ped type="stop"/></direction-type></direction>
+      <note default-y="-100">
+        <rest/>
+        <duration>64</duration>
+        <voice>1</voice>
+        <type>whole</type>
+      </note>
+      <note default-y="-150">
+        <rest/>
+        <duration>64</duration>
+        <voice>2</voice>
+        <type>whole</type>
       </note>
     </measure>
     <measure number="7">
@@ -610,60 +595,15 @@
       <direction><direction-type><ped type="stop"/></direction-type></direction>
       <note default-y="-100">
         <rest/>
-        <duration>48</duration>
+        <duration>64</duration>
         <voice>1</voice>
-        <type>half</type>
+        <type>whole</type>
       </note>
       <note default-y="-150">
         <rest/>
-        <duration>48</duration>
+        <duration>64</duration>
         <voice>2</voice>
-        <type>half</type>
-      </note>
-    </measure>
-    <measure number="8">
-      <note default-y="-100">
-        <rest/>
-        <duration>48</duration>
-        <voice>1</voice>
-        <type>half</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>48</duration>
-        <voice>2</voice>
-        <type>half</type>
-      </note>
-    </measure>
-    <measure number="9">
-      <direction><direction-type><ped type="stop"/></direction-type></direction>
-      <direction><direction-type><ped type="stop"/></direction-type></direction>
-      <note default-y="-100">
-        <rest/>
-        <duration>48</duration>
-        <voice>1</voice>
-        <type>half</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>48</duration>
-        <voice>2</voice>
-        <type>half</type>
-      </note>
-    </measure>
-    <measure number="10">
-      <direction><direction-type><ped type="stop"/></direction-type></direction>
-      <note default-y="-100">
-        <rest/>
-        <duration>48</duration>
-        <voice>1</voice>
-        <type>half</type>
-      </note>
-      <note default-y="-150">
-        <rest/>
-        <duration>48</duration>
-        <voice>2</voice>
-        <type>half</type>
+        <type>whole</type>
       </note>
     </measure>
   </part>

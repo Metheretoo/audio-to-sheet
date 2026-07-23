@@ -7,6 +7,8 @@ Application locale et open source pour convertir un fichier audio (MP3, WAV, FLA
 ![alt text](/pub/Piano-transcription-a1-menu.jpg)
 ![alt text](/pub/Piano-transcription-a1-options.jpg)
 
+---
+
 ## ✅ Prérequis
 
 - **Python 3.9 ou supérieur** — [télécharger](https://python.org)
