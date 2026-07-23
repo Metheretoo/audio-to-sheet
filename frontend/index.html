@@ -84,302 +84,331 @@
 
           <div class="advanced-settings-grid">
 
-            <!-- Moteur de transcription -->
-            <div class="setting-item">
-              <span class="setting-label">Transcripteur</span>
-              <div class="radio-group-premium">
-                <label class="radio-label-premium" title="Piano Transcription (ByteDance) : Entraîné spécifiquement sur le piano, très bon pour les accords et la séparation des mains.">
-                  <input type="radio" name="transcriber" value="piano_transcription" checked />
-                  <span>Piano Transcription (recommandé)</span>
-                </label>
-                <label class="radio-label-premium" title="Transkun : Modèle Transformer SOTA avec haute précision expressive pour capturer de fines nuances.">
-                  <input type="radio" name="transcriber" value="transkun" />
-                  <span>Transkun (expressivité maximale)</span>
-                </label>
-                <label class="radio-label-premium" title="hFT-Transformer (Sony) : Modèle de transcription audio à base de Transformer, performant sur la détection de notes et de pédales.">
-                  <input type="radio" name="transcriber" value="hft" />
-                  <span>hFT-Transformer (Sony)</span>
-                </label>
-                <label class="radio-label-premium" title="Basic Pitch (Spotify) : Modèle rapide et léger, bon pour les tests comparatifs.">
-                  <input type="radio" name="transcriber" value="basic_pitch" />
-                  <span>Basic Pitch (Spotify)</span>
-                </label>
-              </div>
-            </div>
 
-            <!-- Prétraitement Audio -->
-            <div class="setting-item" title="Sépare l'audio en pistes (Voix, Batterie, Basse, Autre) et ne garde que la piste piano.&#10;• Désactivez-le uniquement si votre fichier source est un enregistrement studio propre contenant EXCLUSIVEMENT du piano, pour gagner 50% de temps de calcul.">
-              <span class="setting-label">Prétraitement Audio</span>
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="use-demucs" checked />
-                <span>Isolation du piano (Demucs)</span>
-              </label>
-              <small class="setting-hint">Sépare les instruments et conserve principalement la piste piano.</small>
-            </div>
 
-            <!-- Nettoyage MIDI -->
-            <div class="setting-item col-span-2">
-              <span class="setting-label">Nettoyage MIDI</span>
-              <div class="sub-settings-flex">
-                <div class="sub-setting-item" title="Filtre les notes parasites ('ghost notes' ou artefacts de l'IA).&#10;• Augmentez (>80ms) si la partition a trop de 'déchets' très courts.&#10;• Diminuez (<30ms) si des trilles très rapides ou des glissandos disparaissent.">
-                  <label class="checkbox-label-premium">
-                    <input type="checkbox" id="remove-short-notes">
-                    <span>Supprimer les notes très courtes</span>
-                  </label>
-                  <div class="input-inline-container">
-                    <span class="input-inline-label">Durée minimale :</span>
-                    <input type="number" id="min-note-duration" class="input-field-sm" value="50" min="10" max="1000" />
-                    <span class="unit">ms</span>
+            <!-- ═══ GROUPE 1 : Transcription ═══ -->
+            <details class="collapsible-subsection" open>
+              <summary class="collapsible-summary">🎹 Transcription</summary>
+              <div class="subsection-content">
+                <!-- Moteur de transcription -->
+                <div class="setting-item">
+                  <span class="setting-label">Transcripteur</span>
+                  <div class="radio-group-premium">
+                    <label class="radio-label-premium" title="Piano Transcription (ByteDance) : Entraîné spécifiquement sur le piano, très bon pour les accords et la séparation des mains.">
+                      <input type="radio" name="transcriber" value="piano_transcription" checked />
+                      <span>Piano Transcription (recommandé)</span>
+                    </label>
+                    <label class="radio-label-premium" title="Transkun : Modèle Transformer SOTA avec haute précision expressive pour capturer de fines nuances.">
+                      <input type="radio" name="transcriber" value="transkun" />
+                      <span>Transkun (expressivité maximale)</span>
+                    </label>
+                    <label class="radio-label-premium" title="hFT-Transformer (Sony) : Modèle de transcription audio à base de Transformer, performant sur la détection de notes et de pédales.">
+                      <input type="radio" name="transcriber" value="hft" />
+                      <span>hFT-Transformer (Sony)</span>
+                    </label>
+                    <label class="radio-label-premium" title="Basic Pitch (Spotify) : Modèle rapide et léger, bon pour les tests comparatifs.">
+                      <input type="radio" name="transcriber" value="basic_pitch" />
+                      <span>Basic Pitch (Spotify)</span>
+                    </label>
                   </div>
                 </div>
-                <div class="sub-setting-item" title="Lisse le rendu : si l'IA détecte une même note bégayante coupée en deux, cela la fusionne.&#10;• Utile pour éviter les cravates inutiles sur une note tenue.">
+
+                <!-- Séparation des mains -->
+                <div class="setting-item">
+                  <span class="setting-label">Séparation des mains</span>
                   <label class="checkbox-label-premium">
-                    <input type="checkbox" id="merge-near-notes">
-                    <span>Fusionner les notes répétées très proches</span>
+                    <input type="checkbox" id="split-hands" checked />
+                    <span>Séparer automatiquement main gauche / main droite</span>
                   </label>
-                  <div class="input-inline-container">
-                    <span class="input-inline-label">Intervalle maximal :</span>
-                    <input type="number" id="merge-gap-ms" class="input-field-sm" value="30" min="5" max="500" />
-                    <span class="unit">ms</span>
+                </div>
+
+                <!-- Nettoyage MIDI -->
+                <div class="setting-item col-span-2">
+                  <span class="setting-label">Nettoyage MIDI</span>
+                  <div class="sub-settings-flex">
+                    <div class="sub-setting-item" title="Filtre les notes parasites ('ghost notes' ou artefacts de l'IA).&#10;• Augmentez (>80ms) si la partition a trop de 'déchets' très courts.&#10;• Diminuez (<30ms) si des trilles très rapides ou des glissandos disparaissent.">
+                      <label class="checkbox-label-premium">
+                        <input type="checkbox" id="remove-short-notes">
+                        <span>Supprimer les notes très courtes</span>
+                      </label>
+                      <div class="input-inline-container">
+                        <span class="input-inline-label">Durée minimale :</span>
+                        <input type="number" id="min-note-duration" class="input-field-sm" value="50" min="10" max="1000" />
+                        <span class="unit">ms</span>
+                      </div>
+                    </div>
+                    <div class="sub-setting-item" title="Lisse le rendu : si l'IA détecte une même note bégayante coupée en deux, cela la fusionne.&#10;• Utile pour éviter les cravates inutiles sur une note tenue.">
+                      <label class="checkbox-label-premium">
+                        <input type="checkbox" id="merge-near-notes">
+                        <span>Fusionner les notes répétées très proches</span>
+                      </label>
+                      <div class="input-inline-container">
+                        <span class="input-inline-label">Intervalle maximal :</span>
+                        <input type="number" id="merge-gap-ms" class="input-field-sm" value="30" min="5" max="500" />
+                        <span class="unit">ms</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </details>
 
-<!-- Quantification -->
-<div class="setting-item" title="Ajuste la rigidité de la grille rythmique (l'arrondi des notes) :&#10;• Aucune : Rythme brut (injouable, utile pour le debug)&#10;• Légère (1/32) : Garde le jeu 'humain', utile pour le classique ou le jazz très expressif.&#10;• Standard (1/16) : Le meilleur compromis de lisibilité (Pop/Variété).&#10;• Forte (1/8) : Simplifie le morceau au maximum, idéal pour les débutants (évite les syncopes complexes)">
-  <span class="setting-label">Quantification</span>
-  <div class="radio-group-premium inline-flex">
-    <label class="radio-label-premium" title="Rythme brut (injouable, utile pour le debug)">
-      <input type="radio" name="quantization" value="none" />
-      <span>Aucune</span>
-    </label>
-    <label class="radio-label-premium">
-      <input type="radio" name="quantization" value="light" />
-      <span>Légère</span>
-    </label>
-    <label class="radio-label-premium">
-      <input type="radio" name="quantization" value="standard" checked />
-      <span>Standard</span>
-    </label>
-    <label class="radio-label-premium">
-      <input type="radio" name="quantization" value="heavy" />
-      <span>Forte</span>
-    </label>
-  </div>
-</div>
+            <!-- ═══ GROUPE 2 : Quantification & Expressivité ═══ -->
+            <details class="collapsible-subsection" open>
+              <summary class="collapsible-summary">📐 Quantification & Expressivité</summary>
+              <div class="subsection-content">
 
-            <!-- Options avancées -->
-            <div class="setting-item">
-              <span class="setting-label">Options expressives</span>
-              <div class="checkbox-group">
-                <label class="checkbox-label-premium" title="Préserve l'expressivité (rubato, arpèges, notes inégales). Partition plus dense mais fidèle au jeu original.">
-                  <input type="checkbox" id="enable-rubato" />
-                  <span>Rubato</span>
-                </label>
-                <label class="checkbox-label-premium" title="Active la détection et l'écriture des triolets (3 notes dans le temps de 2).">
-                  <input type="checkbox" id="enable-triplets" />
-                  <span>Triolets</span>
-                </label>
-                <label class="checkbox-label-premium" title="Smooth : double le tempo et simplifie le rythme (noires/croches uniquement). Idéal pour une partition plus lisible, surtout pour les débutants.">
-                  <input type="checkbox" id="enable-smooth" />
-                  <span>🎵 Smooth (rythme simplifié)</span>
-                </label>
-              </div>
-            </div>
+				<!-- Quantification -->
+				<div class="setting-item" title="Ajuste la rigidité de la grille rythmique (l'arrondi des notes) :&#10;• Aucune : Rythme brut (injouable, utile pour le debug)&#10;• Légère (1/32) : Garde le jeu 'humain', utile pour le classique ou le jazz très expressif.&#10;• Standard (1/16) : Le meilleur compromis de lisibilité (Pop/Variété).&#10;• Forte (1/8) : Simplifie le morceau au maximum, idéal pour les débutants (évite les syncopes complexes)">
+				  <span class="setting-label">Quantification</span>
+				  <div class="radio-group-premium inline-flex">
+					<label class="radio-label-premium" title="Rythme brut (injouable, utile pour le debug)">
+					  <input type="radio" name="quantization" value="none" />
+					  <span>Aucune</span>
+					</label>
+					<label class="radio-label-premium">
+					  <input type="radio" name="quantization" value="light" />
+					  <span>Légère</span>
+					</label>
+					<label class="radio-label-premium">
+					  <input type="radio" name="quantization" value="standard" checked />
+					  <span>Standard</span>
+					</label>
+					<label class="radio-label-premium">
+					  <input type="radio" name="quantization" value="heavy" />
+					  <span>Forte</span>
+					</label>
+				  </div>
+				</div>
 
-              <!-- Filtrage harmonique (piano classique) -->
-              <div class="setting-item" title="Filtre les 'notes fantômes' causées par les harmoniques.&#10;• Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons) et quinte (+7).&#10;• Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.&#10;• Le filtrage les supprime en se basant sur la vélocité et la simultanéité.&#10;• Classique : recommandé pour Chopin, Debussy, etc.&#10;• Agressif : pour partitions très complexes (mazurkas, nocturnes).">
-                <label class="setting-label">
-                  🎹 Filtrage harmonique
-                  <span id="harmonic-filter-display" class="threshold-val">Classique renforcé</span>
-                </label>
-                <select id="harmonic-filter" class="input-field select-field" aria-label="Filtrage harmonique">
-                  <option value="off">Désactivé</option>
-                  <option value="basic">Basique (léger)</option>
-                  <option value="aggressive">Agressif (romantique)</option>
-                  <option value="ultra">Ultra (maximum)</option>
-                  <option value="classical">🎹 Classique</option>
-                  <option value="pedal-aware">🎹 Anti-pédale (spécialisé)</option>
-                  <option value="classical-strong" selected>🎹 Classique renforcé (Chopin/Nocturnes)</option>
-                  <option value="transkun-chord">🎹 Transkun-chord (recommandé classique)</option>
-                  <option value="custom">⚙️ Personnalisé (paramètres manuels)</option>
-                </select>
-                <small class="setting-hint">Supprime les harmoniques fantômes (notes en trop dues à la pédale)</small>
-              </div>
-
-              <!-- Paramètres personnalisés du filtrage harmonique (affichés quand custom sélectionné) -->
-              <div id="custom-harmonic-params" class="custom-harmonic-params" style="display: none;">
-                <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
-                  <label class="setting-label">
-                    Ratio de vélocité harmonique
-                    <span class="threshold-val" id="custom-harmonic-vel-display">0.35</span>
-                  </label>
-                  <input type="range" id="custom-harmonic-vel" class="range-field" min="0.0" max="1.0" step="0.01" value="0.35" />
-                  <small class="setting-hint">Seuil pour détecter les harmoniques : plus bas = plus agressif (0.35 = note < 35% de la source)</small>
-                </div>
-                <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
-                  <label class="setting-label">
-                    Seuil de protection
-                    <span class="threshold-val" id="custom-harmonic-prot-display">0.88</span>
-                  </label>
-                  <input type="range" id="custom-harmonic-prot" class="range-field" min="0.5" max="1.0" step="0.01" value="0.88" />
-                  <small class="setting-hint">Notes au-dessus de ce seuil sont toujours conservées (mélodie protégée)</small>
-                </div>
-                <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
-                  <label class="setting-label">
-                    Tolérance temporelle
-                    <span class="threshold-val" id="custom-harmonic-time-display">0.07s</span>
-                  </label>
-                  <input type="range" id="custom-harmonic-time" class="range-field" min="0.0" max="0.5" step="0.01" value="0.07" />
-                  <small class="setting-hint">Fenêtre de simultanéité : plus large = détecte plus d'harmoniques de pédale</small>
-                </div>
-                <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
-                  <label class="setting-label">
-                    Seuil des basses
-                    <span class="threshold-val" id="custom-harmonic-bass-display">36</span>
-                  </label>
-                  <input type="range" id="custom-harmonic-bass" class="range-field" min="12" max="72" step="1" value="36" />
-                  <small class="setting-hint">Note MIDI au-dessus de laquelle on ne considère plus les basses (36 = Do1)</small>
-                </div>
-              </div>
-
-              <!-- Protection basse (main gauche) -->
-              <div class="setting-item" title="Protège les notes graves (main gauche) en fonction de leur vélocité.&#10;• En piano, les basses sonnent naturellement fort et sont jouées avec moins de force (vélocité ~25-30/127 ≈ 0.20-0.24).&#10;• Les notes graves AU-DESSUS de ce seuil sont protégées et jamais supprimées par le filtrage.&#10;• Augmentez ce seuil si vous perdez des notes de basse légitimes.&#10;• Valeur recommandée : 0.30-0.50 pour un équilibre, > 0.60 pour une protection maximale.">
-                <label class="setting-label">
-                  🎹 Protection basse (main gauche)
-                  <span id="bass-protection-display" class="threshold-val">Moyenne</span>
-                </label>
-                <input type="range" id="bass-protection" class="range-field" min="0.00" max="1.00" step="0.05"
-                  value="0.35" aria-label="Seuil de protection des basses" />
-                <div class="range-labels">
-                  <span>Faible</span>
-                  <span>Forte</span>
-                </div>
-                <small class="setting-hint">Notes graves au-dessus de ce seuil de vélocité sont protégées (main gauche légitime)</small>
-              </div>
-
-              <!-- Force d'alignement de la quantification -->
-              <div class="setting-item" title="Contrôle l'intensité de l'alignement rythmique sur la grille.&#10;• 0.0 = Rythme libre : timings bruts préservés (quasi 'Aucune').&#10;• 0.5 = Alignement intermédiaire entre 'Rythme libre' et le preset.&#10;• 1.0 = Alignement maximal selon le preset de quantification choisi.&#10;• Le preset 'Quantification' définit le plafond d'alignement.&#10;• Ex: 'Forte' + Force=0.3 → peu aligné (ideal pour mazurka/rubato).">
-               <label for="quantization-sensitivity" class="setting-label">
-                 Force d'alignement
-                 <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
-               </label>
-               <input type="range" id="quantization-sensitivity" class="range-field" min="0" max="1" step="0.01"
-                 value="0.5" disabled aria-label="Force d'alignement de la quantification" />
-               <div class="range-labels">
-                 <span>Rythme libre</span>
-                 <span>Plein alignement</span>
+                <!-- Force d'alignement de la quantification -->
+                <div class="setting-item" title="Contrôle l'intensité de l'alignement rythmique sur la grille.&#10;• 0.0 = Rythme libre : timings bruts préservés (quasi 'Aucune').&#10;• 0.5 = Alignement intermédiaire entre 'Rythme libre' et le preset.&#10;• 1.0 = Alignement maximal selon le preset de quantification choisi.&#10;• Le preset 'Quantification' définit le plafond d'alignement.&#10;• Ex: 'Forte' + Force=0.3 → peu aligné (ideal pour mazurka/rubato).">
+                 <label for="quantization-sensitivity" class="setting-label">
+                   Force d'alignement
+                   <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
+                 </label>
+                 <input type="range" id="quantization-sensitivity" class="range-field" min="0" max="1" step="0.01"
+                   value="0.5" disabled aria-label="Force d'alignement de la quantification" />
+                 <div class="range-labels">
+                   <span>Rythme libre</span>
+                   <span>Plein alignement</span>
+                 </div>
+                 <small class="setting-hint">Ajuste l'alignement rythmique en complément du mode de quantification (de "Rythme libre" à "Plein alignement")</small>
                </div>
-               <small class="setting-hint">Ajuste l'alignement rythmique en complément du mode de quantification (de "Rythme libre" à "Plein alignement")</small>
-             </div>
 
-             <!-- Piano Uniquement -->
-            <div class="setting-item">
-              <span class="setting-label">Séparation des mains</span>
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="split-hands" checked />
-                <span>Séparer automatiquement main gauche / main droite</span>
-              </label>
-            </div>
+                <!-- Options expressives -->
+                <div class="setting-item">
+                  <span class="setting-label">Options expressives</span>
+                  <div class="checkbox-group">
+                    <label class="checkbox-label-premium" title="Préserve l'expressivité (rubato, arpèges, notes inégales). Partition plus dense mais fidèle au jeu original.">
+                      <input type="checkbox" id="enable-rubato" />
+                      <span>Rubato</span>
+                    </label>
+                    <label class="checkbox-label-premium" title="Active la détection et l'écriture des triolets (3 notes dans le temps de 2).">
+                      <input type="checkbox" id="enable-triplets" />
+                      <span>Triolets</span>
+                    </label>
+                    <label class="checkbox-label-premium" title="Smooth : double le tempo et simplifie le rythme (noires/croches uniquement). Idéal pour une partition plus lisible, surtout pour les débutants.">
+                      <input type="checkbox" id="enable-smooth" />
+                      <span>🎵 Smooth (rythme simplifié)</span>
+                    </label>
+                  </div>
+                </div>
 
-            <!-- Analyse Musicale -->
-            <div class="setting-item">
-              <span class="setting-label">Analyse Musicale</span>
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="detect-tempo" checked />
-                <span>Détection automatique du tempo (BPM)</span>
-              </label>
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="detect-meter" checked />
-                <span>Détection automatique de la mesure (3/4, 4/4…)</span>
-              </label>
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="detect-key" checked />
-                <span>Détection automatique de la tonalité</span>
-              </label>
-            </div>
+                <!-- ═══ Filtrage harmonique (déplacé ici) ═══ -->
+                <div class="setting-item" title="Filtre les 'notes fantômes' causées par les harmoniques.&#10;• Une note grave jouée avec pédale crée des harmoniques à l'octave (+12 demi-tons) et quinte (+7).&#10;• Ces harmoniques sont détectés comme des notes par l'IA et apparaissent en trop dans la partition.&#10;• Le filtrage les supprime en se basant sur la vélocité et la simultanéité.&#10;• Classique : recommandé pour Chopin, Debussy, etc.&#10;• Agressif : pour partitions très complexes (mazurkas, nocturnes).">
+                  <label class="setting-label">
+                    🎹 Filtrage harmonique
+                    <span id="harmonic-filter-display" class="threshold-val">Classique renforcé</span>
+                  </label>
+                  <select id="harmonic-filter" class="input-field select-field" aria-label="Filtrage harmonique">
+                    <option value="off">Désactivé</option>
+                    <option value="basic">Basique (léger)</option>
+                    <option value="aggressive">Agressif (romantique)</option>
+                    <option value="ultra">Ultra (maximum)</option>
+                    <option value="classical">🎹 Classique</option>
+                    <option value="pedal-aware">🎹 Anti-pédale (spécialisé)</option>
+                    <option value="classical-strong" selected>🎹 Classique renforcé (Chopin/Nocturnes)</option>
+                    <option value="transkun-chord">🎹 Transkun-chord (recommandé classique)</option>
+                    <option value="custom">⚙️ Personnalisé (paramètres manuels)</option>
+                  </select>
+                  <small class="setting-hint">Supprime les harmoniques fantômes (notes en trop dues à la pédale)</small>
+                </div>
 
-            <!-- Paramètres Classiques (Tempo, Mesure, Tonalité, Sensibilité) -->
-            <div class="setting-item" id="tempo-override-item">
-              <label for="tempo-override" class="setting-label">Tempo (manuel)</label>
-              <div class="setting-control">
-                <input type="number" id="tempo-override" class="input-field" placeholder="Auto" min="40" max="300"
-                  step="1" aria-label="Tempo en BPM" />
-                <span class="unit">BPM</span>
+                <!-- Paramètres personnalisés du filtrage harmonique (affichés quand custom sélectionné) -->
+                <div id="custom-harmonic-params" class="custom-harmonic-params" style="display: none;">
+                  <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
+                    <label class="setting-label">
+                      Ratio de vélocité harmonique
+                      <span class="threshold-val" id="custom-harmonic-vel-display">0.35</span>
+                    </label>
+                    <input type="range" id="custom-harmonic-vel" class="range-field" min="0.0" max="1.0" step="0.01" value="0.35" />
+                    <small class="setting-hint">Seuil pour détecter les harmoniques : plus bas = plus agressif (0.35 = note < 35% de la source)</small>
+                  </div>
+                  <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
+                    <label class="setting-label">
+                      Seuil de protection
+                      <span class="threshold-val" id="custom-harmonic-prot-display">0.88</span>
+                    </label>
+                    <input type="range" id="custom-harmonic-prot" class="range-field" min="0.5" max="1.0" step="0.01" value="0.88" />
+                    <small class="setting-hint">Notes au-dessus de ce seuil sont toujours conservées (mélodie protégée)</small>
+                  </div>
+                  <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
+                    <label class="setting-label">
+                      Tolérance temporelle
+                      <span class="threshold-val" id="custom-harmonic-time-display">0.07s</span>
+                    </label>
+                    <input type="range" id="custom-harmonic-time" class="range-field" min="0.0" max="0.5" step="0.01" value="0.07" />
+                    <small class="setting-hint">Fenêtre de simultanéité : plus large = détecte plus d'harmoniques de pédale</small>
+                  </div>
+                  <div class="setting-item" style="border-left: 3px solid var(--accent); padding-left: 12px;">
+                    <label class="setting-label">
+                      Seuil des basses
+                      <span class="threshold-val" id="custom-harmonic-bass-display">36</span>
+                    </label>
+                    <input type="range" id="custom-harmonic-bass" class="range-field" min="12" max="72" step="1" value="36" />
+                    <small class="setting-hint">Note MIDI au-dessus de laquelle on ne considère plus les basses (36 = Do1)</small>
+                  </div>
+                </div>
               </div>
-              <small class="setting-hint">Surcharger le tempo détecté</small>
-            </div>
+            </details>
 
-            <div class="setting-item">
-              <label for="time-sig" class="setting-label">Mesure
-                <span id="meter-auto-badge" class="auto-detected-badge" style="display:none;">Auto-détecté ✓</span>
-              </label>
-              <select id="time-sig" class="input-field select-field" aria-label="Chiffrage de mesure">
-                <option value="4/4" selected>4/4 — Quadruple</option>
-                <option value="3/4">3/4 — Triple</option>
-                <option value="2/4">2/4 — Binaire</option>
-                <option value="3/8">3/8 — Simple (croche)</option>
-                <option value="6/8">6/8 — Composé</option>
-                <option value="9/8">9/8 — Composé (triple)</option>
-                <option value="12/8">12/8 — Composé (quadruple)</option>
-              </select>
-            </div>
+            <!-- ═══ GROUPE 3 : Sensibilité de détection ═══ -->
+            <details class="collapsible-subsection" open>
+              <summary class="collapsible-summary">🎹 Sensibilité de détection</summary>
+              <div class="subsection-content">
+                <!-- Isolation du piano (Demucs) — déplacé ici en première position -->
+                <div class="setting-item" title="Sépare l'audio en pistes (Voix, Batterie, Basse, Autre) et ne garde que la piste piano.&#10;• Désactivez-le uniquement si votre fichier source est un enregistrement studio propre contenant EXCLUSIVEMENT du piano, pour gagner 50% de temps de calcul.">
+                  <span class="setting-label">Prétraitement Audio</span>
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="use-demucs" checked />
+                    <span>Isolation du piano (Demucs)</span>
+                  </label>
+                  <small class="setting-hint">Sépare les instruments et conserve principalement la piste piano.</small>
+                </div>
 
-            <div class="setting-item">
-              <label for="key-sig-upload" class="setting-label">🎼 Tonalité / Armure (manuelle)</label>
-              <select id="key-sig-upload" class="input-field select-field" aria-label="Armure (tonalité)">
-                <option value="C">Do Majeur / La mineur (C — aucun signe)</option>
-                <option value="G">Sol Majeur / Mi mineur (G — 1♯)</option>
-                <option value="D">Ré Majeur / Si mineur (D — 2♯)</option>
-                <option value="A">La Majeur / Fa♯ mineur (A — 3♯)</option>
-                <option value="E">Mi Majeur / Do♯ mineur (E — 4♯)</option>
-                <option value="B">Si Majeur / Sol♯ mineur (B — 5♯)</option>
-                <option value="F#">Fa♯ Majeur / Ré♯ mineur (F# — 6♯)</option>
-                <option value="F">Fa Majeur / Ré mineur (F — 1♭)</option>
-                <option value="Bb">Si♭ Majeur / Sol mineur (Bb — 2♭)</option>
-                <option value="Eb">Mi♭ Majeur / Do mineur (Eb — 3♭)</option>
-                <option value="Ab">La♭ Majeur / Fa mineur (Ab — 4♭)</option>
-                <option value="Db">Ré♭ Majeur / Si♭ mineur (Db — 5♭)</option>
-                <option value="Gb">Sol♭ Majeur / Mi♭ mineur (Gb — 6♭)</option>
-              </select>
-              <small class="setting-hint">Surcharger la tonalité détectée</small>
-            </div>
+                <div class="setting-item" title="Ajuste directement le seuil de détection des attaques de notes par l'IA.&#10;• Valeur basse (0.20) : capte les notes très douces, mais risque de fausses détections.&#10;• Valeur haute (0.85) : plus strict, ignore le bruit de fond, mais risque de manquer des notes faibles.&#10;• Recommandé : 0.40-0.50 pour la plupart des fichiers.">
+                  <label for="onset-threshold" class="setting-label">
+                    Sensibilité globale
+                    <span id="threshold-display" class="threshold-val">0.50</span>
+                  </label>
+                  <input type="range" id="onset-threshold" class="range-field" min="0.20" max="0.85" step="0.01"
+                    value="0.50" aria-label="Seuil de détection des notes" />
+                  <div class="range-labels">
+                    <span>Fort</span>
+                    <span>Faible</span>
+                  </div>
+                </div>
 
-              <div class="setting-item" title="Ajuste directement le seuil de détection des attaques de notes par l'IA.&#10;• Valeur basse (0.20) : capte les notes très douces, mais risque de fausses détections.&#10;• Valeur haute (0.85) : plus strict, ignore le bruit de fond, mais risque de manquer des notes faibles.&#10;• Recommandé : 0.40-0.50 pour la plupart des fichiers.">
-              <label for="onset-threshold" class="setting-label">
-                Sensibilité globale
-                <span id="threshold-display" class="threshold-val">0.50</span>
-              </label>
-              <input type="range" id="onset-threshold" class="range-field" min="0.20" max="0.85" step="0.01"
-                value="0.50" aria-label="Seuil de détection des notes" />
-              <div class="range-labels">
-                <span>Maximale</span>
-                <span>Réduite</span>
+                <!-- Seuil adaptatif basses/aigus -->
+                <div class="setting-item" id="adaptive-threshold-item" title="Active un seuil de détection différentiel pour les basses et les aigus.&#10;• Les notes graves (main gauche, < BASS_ANCHOR≈55) utilisent un seuil plus bas pour être détectées même avec une attaque douce.&#10;• Les notes aiguës (main droite, ≥ BASS_ANCHOR) utilisent le seuil de détection principal.&#10;• Activez cette option si vous perdez des notes de basse à sensibilité élevée.&#10;• Ajustez 'Sensibilité basses' pour contrôler la sensibilité des graves.">
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="use-adaptive-threshold" checked />
+                    <span>🎹 Seuil adaptatif basses/aigus</span>
+                  </label>
+                  <small class="setting-hint">Détection différenciée : plus sensible pour les basses (main gauche), plus strict pour les aigus (main droite)</small>
+                </div>
+
+                <div class="setting-item" id="adaptive-bass-threshold-item" style="display:block;" title="Ajuste la sensibilité de détection pour les notes graves (main gauche).&#10;• Valeur basse (0.05) : très sensible, capte les notes très douces.&#10;• Valeur haute (0.85) : moins sensible, ignore le bruit de fond.">
+                  <label class="setting-label">
+                    Sensibilité basses
+                    <span id="bass-onset-threshold-display" class="threshold-val">0.15</span>
+                  </label>
+                  <input type="range" id="bass-onset-threshold" class="range-field" min="0.05" max="0.85" step="0.01"
+                    value="0.15" aria-label="Seuil de détection pour les basses" />
+                  <div class="range-labels">
+                    <span>Maximale</span>
+                    <span>Réduite</span>
+                  </div>
+                </div>
+
+                <!-- Protection basse (main gauche) — en dernière position -->
+                <div class="setting-item" title="Protège les notes graves (main gauche) en fonction de leur vélocité.&#10;• En piano, les basses sonnent naturellement fort et sont jouées avec moins de force (vélocité ~25-30/127 ≈ 0.20-0.24).&#10;• Les notes graves AU-DESSUS de ce seuil sont protégées et jamais supprimées par le filtrage.&#10;• Augmentez ce seuil si vous perdez des notes de basse légitimes.&#10;• Valeur recommandée : 0.30-0.50 pour un équilibre, > 0.60 pour une protection maximale.">
+                  <label class="setting-label">
+                    🎹 Protection basse (main gauche)
+                    <span id="bass-protection-display" class="threshold-val">Moyenne</span>
+                  </label>
+                  <input type="range" id="bass-protection" class="range-field" min="0.00" max="1.00" step="0.05"
+                    value="0.35" aria-label="Seuil de protection des basses" />
+                  <div class="range-labels">
+                    <span>Faible</span>
+                    <span>Forte</span>
+                  </div>
+                  <small class="setting-hint">Notes graves au-dessus de ce seuil de vélocité sont protégées (main gauche légitime)</small>
+                </div>
               </div>
-            </div>
+            </details>
 
-            <!-- Seuil adaptatif basses/aigus -->
-            <div class="setting-item" title="Active un seuil de détection différentiel pour les basses et les aigus.&#10;• Les notes graves (main gauche, < BASS_ANCHOR≈55) utilisent un seuil plus bas pour être détectées même avec une attaque douce.&#10;• Les notes aiguës (main droite, ≥ BASS_ANCHOR) utilisent le seuil de détection principal.&#10;• Activez cette option si vous perdez des notes de basse à sensibilité élevée.&#10;• Ajustez 'Seuil basses' pour contrôler la sensibilité des graves.">
-              <label class="checkbox-label-premium">
-                <input type="checkbox" id="use-adaptive-threshold" checked />
-                <span>🎹 Seuil adaptatif basses/aigus</span>
-              </label>
-              <small class="setting-hint">Détection différenciée : plus sensible pour les basses (main gauche), plus strict pour les aigus (main droite)</small>
-            </div>
+            <!-- ═══ GROUPE 4 : Analyse Musicale ═══ -->
+            <details class="collapsible-subsection" open>
+              <summary class="collapsible-summary">🎼 Analyse Musicale</summary>
+              <div class="subsection-content">
+                <div class="setting-item">
+                  <span class="setting-label">Analyse Musicale</span>
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="detect-tempo" checked />
+                    <span>Détection automatique du tempo (BPM)</span>
+                  </label>
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="detect-meter" checked />
+                    <span>Détection automatique de la mesure (3/4, 4/4…)</span>
+                  </label>
+                  <label class="checkbox-label-premium">
+                    <input type="checkbox" id="detect-key" checked />
+                    <span>Détection automatique de la tonalité</span>
+                  </label>
+                </div>
 
-            <div class="setting-item" id="adaptive-bass-threshold-item" style="display:block;">
-              <label class="setting-label">
-                Sensibilité basses
-                <span id="bass-onset-threshold-display" class="threshold-val">0.15</span>
-              </label>
-              <input type="range" id="bass-onset-threshold" class="range-field" min="0.05" max="0.85" step="0.01"
-                value="0.15" aria-label="Seuil de détection pour les basses" />
-              <div class="range-labels">
-                <span>Maximale</span>
-                <span>Réduite</span>
+                <!-- Paramètres Classiques (Tempo, Mesure, Tonalité) -->
+                <div class="setting-item" id="tempo-override-item">
+                  <label for="tempo-override" class="setting-label">Tempo (manuel)</label>
+                  <div class="setting-control">
+                    <input type="number" id="tempo-override" class="input-field" placeholder="Auto" min="40" max="300"
+                      step="1" aria-label="Tempo en BPM" />
+                    <span class="unit">BPM</span>
+                  </div>
+                  <small class="setting-hint">Surcharger le tempo détecté</small>
+                </div>
+
+                <div class="setting-item">
+                  <label for="time-sig" class="setting-label">Mesure
+                    <span id="meter-auto-badge" class="auto-detected-badge" style="display:none;">Auto-détecté ✓</span>
+                  </label>
+                  <select id="time-sig" class="input-field select-field" aria-label="Chiffrage de mesure">
+                    <option value="4/4" selected>4/4 — Quadruple</option>
+                    <option value="3/4">3/4 — Triple</option>
+                    <option value="2/4">2/4 — Binaire</option>
+                    <option value="3/8">3/8 — Simple (croche)</option>
+                    <option value="6/8">6/8 — Composé</option>
+                    <option value="9/8">9/8 — Composé (triple)</option>
+                    <option value="12/8">12/8 — Composé (quadruple)</option>
+                  </select>
+                </div>
+
+                <div class="setting-item">
+                  <label for="key-sig-upload" class="setting-label">🎼 Tonalité / Armure (manuelle)</label>
+                  <select id="key-sig-upload" class="input-field select-field" aria-label="Armure (tonalité)">
+                    <option value="C">Do Majeur / La mineur (C — aucun signe)</option>
+                    <option value="G">Sol Majeur / Mi mineur (G — 1♯)</option>
+                    <option value="D">Ré Majeur / Si mineur (D — 2♯)</option>
+                    <option value="A">La Majeur / Fa♯ mineur (A — 3♯)</option>
+                    <option value="E">Mi Majeur / Do♯ mineur (E — 4♯)</option>
+                    <option value="B">Si Majeur / Sol♯ mineur (B — 5♯)</option>
+                    <option value="F#">Fa♯ Majeur / Ré♯ mineur (F# — 6♯)</option>
+                    <option value="F">Fa Majeur / Ré mineur (F — 1♭)</option>
+                    <option value="Bb">Si♭ Majeur / Sol mineur (Bb — 2♭)</option>
+                    <option value="Eb">Mi♭ Majeur / Do mineur (Eb — 3♭)</option>
+                    <option value="Ab">La♭ Majeur / Fa mineur (Ab — 4♭)</option>
+                    <option value="Db">Ré♭ Majeur / Si♭ mineur (Db — 5♭)</option>
+                    <option value="Gb">Sol♭ Majeur / Mi♭ mineur (Gb — 6♭)</option>
+                  </select>
+                  <small class="setting-hint">Surcharger la tonalité détectée</small>
+                </div>
               </div>
-            </div>
+            </details>
+
+            <!-- ═══ GROUPE 5 : Analyse Musicale (conservé pour structure) ═══ -->
+            <!-- Les options de détection sont dans GROUPE 4 ci-dessus -->
 
           </div>
         </details>

@@ -291,9 +291,9 @@ function initTranscriptionOptions() {
 
     if (presetName === 'rapide') {
       // Basic Pitch est rapide et léger, idéal pour un aperçu immédiat
-      setTranscriberValue('basic_pitch');
+      setTranscriberValue('hft');
       if (useDemucsCb) useDemucsCb.checked = false;
-      setQuantizationValue('light');
+      setQuantizationValue('none');
       if (removeShortCb) removeShortCb.checked = false;
       if (mergeNearCb) mergeNearCb.checked = false;
       if (splitHandsCb) splitHandsCb.checked = true;
@@ -426,6 +426,52 @@ function initTranscriptionOptions() {
         onsetSlider.style.filter = '';
       }
     }
+
+    // Griser le checkbox "Seuil adaptatif basses/aigus" ET le slider "Sensibilité basses" quand Transkun est sélectionné
+    // Ces options font partie du post-traitement et ne sont pas compatibles avec Transkun
+    const adaptiveCheckbox = document.getElementById('use-adaptive-threshold');
+    const bassOnsetSlider = document.getElementById('bass-onset-threshold');
+    const bassThresholdItem = document.getElementById('adaptive-bass-threshold-item');
+    
+    if (adaptiveCheckbox && bassOnsetSlider && bassThresholdItem) {
+      if (isTranskun) {
+        adaptiveCheckbox.disabled = true;
+        adaptiveCheckbox.style.opacity = '0.35';
+        adaptiveCheckbox.style.cursor = 'not-allowed';
+        adaptiveCheckbox.style.pointerEvents = 'none';
+        adaptiveCheckbox.title = 'Incompatible avec Transkun — utilise ses propres seuils internes';
+        
+        bassOnsetSlider.disabled = true;
+        bassOnsetSlider.style.opacity = '0.35';
+        bassOnsetSlider.style.cursor = 'not-allowed';
+        bassOnsetSlider.style.pointerEvents = 'none';
+        bassOnsetSlider.style.filter = 'grayscale(80%)';
+        bassOnsetSlider.title = 'Incompatible avec Transkun';
+        
+        bassThresholdItem.style.opacity = '0.35';
+        bassThresholdItem.style.pointerEvents = 'none';
+      } else {
+        adaptiveCheckbox.disabled = false;
+        adaptiveCheckbox.style.opacity = '1';
+        adaptiveCheckbox.style.cursor = 'pointer';
+        adaptiveCheckbox.style.pointerEvents = '';
+        adaptiveCheckbox.title = 'Active un seuil de détection différentiel pour les basses et les aigus';
+        
+        // Gérer l'état du slider "Sensibilité basses" selon que le checkbox est coché ou non
+        const adaptiveChecked = adaptiveCheckbox.checked;
+        bassOnsetSlider.disabled = !adaptiveChecked;
+        bassOnsetSlider.style.opacity = adaptiveChecked ? '1' : '0.35';
+        bassOnsetSlider.style.cursor = adaptiveChecked ? 'pointer' : 'not-allowed';
+        bassOnsetSlider.style.pointerEvents = adaptiveChecked ? '' : 'none';
+        bassOnsetSlider.style.filter = adaptiveChecked ? '' : 'grayscale(80%)';
+        bassOnsetSlider.title = adaptiveChecked
+          ? 'Ajuste la sensibilité de détection pour les notes graves (main gauche)'
+          : 'Désactivé — cocher "Seuil adaptatif basses/aigus" pour activer';
+        
+        bassThresholdItem.style.opacity = adaptiveChecked ? '1' : '0.35';
+        bassThresholdItem.style.pointerEvents = adaptiveChecked ? '' : 'none';
+      }
+    }
   }
 
   const showPedalCb = document.getElementById('show-pedal-toolbar');
@@ -552,6 +598,28 @@ function initTranscriptionOptions() {
       try {
         localStorage.setItem('audiosheet_time_sig', timeSigEl.value);
       } catch (e) { /* ignore */ }
+    });
+  }
+
+  // Listener pour le checkbox "Seuil adaptatif basses/aigus" : griser/dégriser le slider "Sensibilité basses"
+  const adaptiveCb = document.getElementById('use-adaptive-threshold');
+  const bassOnsetSlider = document.getElementById('bass-onset-threshold');
+  const bassThresholdItem = document.getElementById('adaptive-bass-threshold-item');
+  if (adaptiveCb && bassOnsetSlider && bassThresholdItem) {
+    adaptiveCb.addEventListener('change', () => {
+      const isTranskun = getTranscriberValue() === 'transkun';
+      if (isTranskun) return; // déjà géré par toggleManualFields
+      const checked = adaptiveCb.checked;
+      bassOnsetSlider.disabled = !checked;
+      bassOnsetSlider.style.opacity = checked ? '1' : '0.35';
+      bassOnsetSlider.style.cursor = checked ? 'pointer' : 'not-allowed';
+      bassOnsetSlider.style.pointerEvents = checked ? '' : 'none';
+      bassOnsetSlider.style.filter = checked ? '' : 'grayscale(80%)';
+      bassOnsetSlider.title = checked
+        ? 'Ajuste la sensibilité de détection pour les notes graves (main gauche)'
+        : 'Désactivé — cocher "Seuil adaptatif basses/aigus" pour activer';
+      bassThresholdItem.style.opacity = checked ? '1' : '0.35';
+      bassThresholdItem.style.pointerEvents = checked ? '' : 'none';
     });
   }
 

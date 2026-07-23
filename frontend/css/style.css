@@ -1149,3 +1149,83 @@ input[type="file"] { display: none; }
 .quantization-badge.natural { background: #9b59b6; }
 .quantization-badge.micro { background: #e67e22; }
 .quantization-badge.smooth { background: #1abc9c; }
+
+/* ── Sous-groupes collapsibles (collapsible-subsection) ───────────────────── */
+.collapsible-subsection {
+  grid-column: span 1;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.collapsible-subsection[open] {
+  border-color: rgba(124, 58, 237, 0.3);
+}
+
+.collapsible-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--violet-light);
+  cursor: pointer;
+  padding: 10px 14px;
+  background: rgba(124, 58, 237, 0.06);
+  border-bottom: 1px solid var(--panel-border);
+  user-select: none;
+  transition: background var(--transition), color var(--transition);
+  outline: none;
+  display: list-item;
+}
+
+.collapsible-summary:hover {
+  background: rgba(124, 58, 237, 0.12);
+  color: var(--violet);
+}
+
+.collapsible-subsection[open] .collapsible-summary {
+  background: rgba(124, 58, 237, 0.15);
+}
+
+.subsection-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Réduction de l'espacement entre les setting-item dans les sous-groupes */
+.subsection-content .setting-item {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+}
+
+.subsection-content .setting-item:hover {
+  background: var(--glass);
+  border-radius: var(--radius-sm);
+}
+
+/* Style pour les éléments désactivés (grisés) quand Transkun est sélectionné */
+.collapsible-subsection .disabled-with-transkun {
+  opacity: 0.4;
+  pointer-events: none;
+  position: relative;
+}
+
+.collapsible-subsection .disabled-with-transkun::after {
+  content: '⚠️ Incompatible avec Transkun';
+  display: block;
+  font-size: 10px;
+  color: var(--danger);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* Pour les éléments qui doivent rester interactifs même avec Transkun */
+.collapsible-subsection .keep-active-with-transkun {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
