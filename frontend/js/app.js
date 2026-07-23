@@ -252,8 +252,8 @@ function initTranscriptionOptions() {
     if (radio) radio.checked = true;
   }
 
-  // Helper pour définir le filtrage harmonique
-  function setHarmonicFilterValue(val) {
+   // Helper pour définir le filtrage harmonique
+   function setHarmonicFilterValue(val) {
     const sel = document.getElementById('harmonic-filter');
     if (sel && val) sel.value = val;
     // Mettre à jour le label d'affichage
@@ -414,6 +414,23 @@ function initTranscriptionOptions() {
   const qsSlider = document.getElementById('quantization-sensitivity');
   const qsDisplay = document.getElementById('quantization-sensitivity-display');
 
+  // Helper pour mettre à jour l'affichage de la Force d'alignement
+  function updateQuantizationSensitivitySlider() {
+    if (!qsSlider || !qsDisplay) return;
+    const quantLevel = getQuantizationValue();
+    if (quantLevel === 'none') {
+      qsSlider.disabled = true;
+      qsSlider.value = 0;
+      qsDisplay.textContent = 'N/A';
+    } else {
+      qsSlider.disabled = false;
+      if (qsSlider.value === '' || qsSlider.value === null) {
+        qsSlider.value = 0.5;
+      }
+      qsDisplay.textContent = parseFloat(qsSlider.value).toFixed(2);
+    }
+  }
+
     function refreshDisplayToggles() {
       if (!renderer) return;
       
@@ -454,21 +471,6 @@ function initTranscriptionOptions() {
   if (showChordsCbToggle) showChordsCbToggle.addEventListener('change', refreshDisplayToggles);
   if (showHighestNoteCb) showHighestNoteCb.addEventListener('change', refreshDisplayToggles);
 
-  function updateQuantizationSensitivitySlider() {
-    if (!qsSlider || !qsDisplay) return;
-    const quantLevel = getQuantizationValue();
-    if (quantLevel === 'none') {
-      qsSlider.disabled = true;
-      qsSlider.value = 0;
-      qsDisplay.textContent = 'N/A';
-    } else {
-      qsSlider.disabled = false;
-      if (qsSlider.value === '' || qsSlider.value === null) {
-        qsSlider.value = 0.5;
-      }
-      qsDisplay.textContent = parseFloat(qsSlider.value).toFixed(2);
-    }
-  }
 
   if (qsSlider) {
     qsSlider.addEventListener('input', () => {

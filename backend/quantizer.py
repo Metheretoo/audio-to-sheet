@@ -393,101 +393,75 @@ def quantize_notes(
 
     beat_s = 60.0 / max(effective_bpm, 20.0)
 
-    # ── Mapping de sensibilité continu (0.0-1.0) ─────────────────────
-    # Quand quantization_sensitivity est fourni, il ajuste les paramètres
-    # du preset pour un contrôle plus fin.
+    # ── Presets de base (identiques à tempo_quantizer.py V4) ─────────────────
+    # grid_div = subdivisions binaires par beat
+    # snap_threshold_ratio = aimantation (0 = désactivée)
+    # min_duration_beats = durée minimale notée
+    # merge_threshold_beats = fusion notes répétées (0 = jamais)
+    # allow_triplets = grille ternaire active
+    PRESETS = {
+        'none':      {'grid_div': 16, 'snap_threshold_ratio': 0.00, 'min_duration_beats': 0.0,    'merge_threshold_beats': 0.00, 'allow_triplets': False},
+        'light':     {'grid_div': 16, 'snap_threshold_ratio': 0.25, 'min_duration_beats': 0.0625, 'merge_threshold_beats': 0.00, 'allow_triplets': True},
+        'standard':  {'grid_div': 8,  'snap_threshold_ratio': 0.40, 'min_duration_beats': 0.125,  'merge_threshold_beats': 0.05, 'allow_triplets': True},
+        'heavy':     {'grid_div': 4,  'snap_threshold_ratio': 0.50, 'min_duration_beats': 0.25,   'merge_threshold_beats': 0.10, 'allow_triplets': False},
+        'rubato':    {'grid_div': 16, 'snap_threshold_ratio': 0.20, 'min_duration_beats': 0.0625, 'merge_threshold_beats': 0.00, 'allow_triplets': True},
+        'triplets':  {'grid_div': 12, 'snap_threshold_ratio': 0.35, 'min_duration_beats': 0.125,  'merge_threshold_beats': 0.00, 'allow_triplets': True},
+        # classique : grille double-croche + ternaire, ornements préservés,
+        # zéro fusion, aimantation douce. La précision vient de la tempo map.
+        # snap_threshold_ratio réduit à 0.15 (était 0.30) pour éviter la fusion
+        # de notes voisines qui sont à la limite de la grille.
+        'classique': {'grid_div': 8,  'snap_threshold_ratio': 0.15, 'min_duration_beats': 0.125,  'merge_threshold_beats': 0.00, 'allow_triplets': True},
+        # NOUVEAU : preset "precision" pour transcription classique complexe.
+        # Grille très fine (1/32 beat), snap très doux, durée min 1/64.
+        # Idéal quand le transcriber (TruSinger/piano_transcription) fournit
+        # des timings précis et qu'on veut minimiser la destruction rythmique.
+        'precision': {'grid_div': 32, 'snap_threshold_ratio': 0.10, 'min_duration_beats': 0.0625, 'merge_threshold_beats': 0.00, 'allow_triplets': True},
+    }
+
+    base_cfg = PRESETS.get(quantization_level, PRESETS['standard'])
+
+    # ── Mapping de sensibilité continu (0.0-1.0) ─────────────────────────────
+    # Identique à tempo_quantizer.py V4 : _sensitivity_to_config()
+    # - 0.0  → quantification minimale (grille très fine 1/64, pas de snap)
+    # - 0.5  → interpolation mi-chemin entre minimal et preset de base
+    # - 1.0  → preset de base inchangé
+    #
+    # Le mapping utilise une courbe smoothstep pour plus de contrôle dans la zone
+    # 0.3-0.7 où les artéfacts de transcription sont les plus critiques.
     if quantization_sensitivity is not None:
         s = max(0.0, min(1.0, float(quantization_sensitivity)))
-        # Mapping non-linéaire : smoothstep pour plus de contrôle au milieu
-        if s < 0.5:
-            t = s / 0.5
-            t_curve = t * t * (3 - 2 * t)
-        else:
-            t = (s - 0.5) / 0.5
-            t_curve = t * t * (3 - 2 * t)
         
-        # Ajuster grid_div : de 64 (très fin) à 4 (grossier)
-        grid_div_override = max(4, min(64, int(round(64 - t_curve * 60))))
-        snap_override = t_curve * 0.50
-        min_dur_override = 0.0625 + t_curve * 0.1875
+        # Mapping non-linéaire : smoothstep unique sur [0, 1]
+        # t_curve = 0 → config minimale, t_curve = 1 → preset de base
+        # À s=0.5 : t_curve = 0.5 (milieu exact)
+        t_curve = s * s * (3 - 2 * s)  # smoothstep
+        
+        # Configuration "minimale" (s=0) : grille très fine, pas de snap, pas de fusion
+        MIN_GRID_DIV = 64
+        MIN_SNAP = 0.0
+        MIN_DUR = 0.0625  # 1/64
+        MIN_MERGE = 0.0
+        
+        # Interpoler entre config minimale et preset de base
+        grid_div = max(4, min(64, int(round(MIN_GRID_DIV + (base_cfg['grid_div'] - MIN_GRID_DIV) * t_curve))))
+        snap_threshold_ratio = MIN_SNAP + (base_cfg['snap_threshold_ratio'] - MIN_SNAP) * t_curve
+        min_dur = MIN_DUR + (base_cfg['min_duration_beats'] - MIN_DUR) * t_curve
+        merge_thr = MIN_MERGE + (base_cfg['merge_threshold_beats'] - MIN_MERGE) * t_curve
+        allow_triplets = base_cfg['allow_triplets']
     else:
-        grid_div_override = None
-        snap_override = None
-        min_dur_override = None
-    
-    # Choisir la résolution de la grille de position
-    # (diviseur : nombre de subdivisions par beat)
-    grid_map = {
-        'none':      16,   # 1/16 beat ≈ très fin (quasi brut)
-        'light':     16,   # 1/16 beat = triple-croche
-        'standard':   8,   # 1/8  beat = double-croche
-        'heavy':      4,   # 1/4  beat = croche
-        'rubato':    32,   # 1/32 beat : capte le micro-timing expressif
-        'triplets':  12,   # 1/12 beat : base triolet + subdivisions binaires
-        'classique': 32,   # 1/32 beat : snap doux (0.15)
-        'precision': 32,   # NOUVEAU : 1/32 beat, snap très doux (0.10)
-    }
-    grid_div = grid_map.get(quantization_level, 8)
-    if grid_div_override is not None:
-        grid_div = max(grid_div, grid_div_override)  # au moins aussi fin
+        grid_div = base_cfg['grid_div']
+        snap_threshold_ratio = base_cfg['snap_threshold_ratio']
+        min_dur = base_cfg['min_duration_beats']
+        merge_thr = base_cfg['merge_threshold_beats']
+        allow_triplets = base_cfg['allow_triplets']
 
-    # Grille d'aimantation : résolution vers laquelle on attire les notes proches
-    # pour éliminer les micro-silences parasites.
-    #
-    # IMPORTANT : snap_div est en DIVISIONS PAR BEAT, donc :
-    #   snap_div = 2  → snap_step = 0.5 beat = CROCHE
-    #   snap_div = 1  → snap_step = 1.0 beat = NOIRE
-    #
-    # Le threshold à 15% (classique) / 10% (precision) évite d'avaler
-    # les vraies doubles-croches intentionnelles.
-    snap_map = {
-        'none':      0,    # pas d'aimantation
-        'light':     4,    # → double-croche (snap_step=0.25)
-        'standard':  2,    # → croche       (snap_step=0.5)
-        'heavy':     1,    # → noire         (snap_step=1.0)
-        'rubato':    4,    # → double-croche : garde le rubato mais lisible
-        'triplets':  3,    # → tiers de beat : aimantation sur triolets
-        'classique': 4,    # aimantation sur double-croche (snap=0.15)
-        'precision': 4,    # aimantation sur double-croche (snap=0.10)
-    }
-    snap_div = snap_map.get(quantization_level, 2)
-    
-    # Déterminer le snap_threshold_ratio selon le preset
-    snap_threshold_map = {
-        'none':      0.00,  # pas de snap
-        'light':     0.25,
-        'standard':  0.40,
-        'heavy':     0.50,
-        'rubato':    0.20,
-        'triplets':  0.35,
-        'classique': 0.15,   # RÉDUIT de 0.30 → 0.15 pour éviter la fusion de notes
-        'precision': 0.10,   # NOUVEAU : snap très doux
-    }
-    snap_threshold_ratio = snap_threshold_map.get(quantization_level, 0.45)
-    
-    # Si quantization_sensitivity est fourni, ajuster le snap
-    if snap_override is not None:
-        snap_threshold_ratio = min(snap_threshold_ratio, snap_override)
-    
-    # Duration min override
-    min_dur = min_dur_override if min_dur_override else 0.125
-
-    # BUG CORRIGÉ (v4.1) : le mode Rubato forçait auparavant grid_div=32 ET
-    # désactivait complètement l'aimantation (snap_div=0), ÉCRASANT le niveau
-    # de quantification choisi par l'utilisateur. Résultat : impossible d'obtenir
-    # une partition lisible en Rubato, quel que soit le réglage "Forte/Standard/
-    # Légère" choisi ("soupe de notes" signalée en retour).
-    #
-    # Le Rubato doit uniquement permettre de CAPTER le micro-timing expressif
-    # (grille fine), pas supprimer toute aimantation rythmique. On affine donc
-    # la grille sans jamais la dégrader (max avec la grille déjà choisie), et on
-    # relâche l'aimantation au lieu de la couper : le rythme reste lisible tout
-    # en conservant davantage de nuance qu'en mode non-rubato.
+    # Override pour rubato : réduire le snap pour préserver le micro-timing
     if enable_rubato:
         grid_div = max(grid_div, 32)  # au moins 1/32 beat
-        if snap_div > 0:
-            snap_div = min(snap_div * 2, 8)
-            snap_threshold_ratio = 0.30
+        if snap_threshold_ratio > 0:
+            snap_threshold_ratio = min(snap_threshold_ratio, 0.20)
+    if enable_triplets:
+        allow_triplets = True
 
     result: List[QuantizedNote] = []
 
@@ -531,8 +505,8 @@ def quantize_notes(
             # Exemple standard : snap_step=0.5 (croche)
             # Une note à 0.125 beat d'une croche → snap_step=0.5, remainder=0.125
             # 0.125 < 0.5*0.30=0.15 → aimantée ✓
-            if snap_div > 0:
-                snap_step = 1.0 / snap_div
+            if snap_threshold_ratio > 0 and grid_div > 0:
+                snap_step = 1.0 / grid_div
                 threshold = snap_step * snap_threshold_ratio
                 remainder = beat_position % snap_step
                 if remainder < threshold:            # proche du début de cellule

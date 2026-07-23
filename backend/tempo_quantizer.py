@@ -43,47 +43,43 @@ class QuantizerConfig:
 
 def _sensitivity_to_config(base: QuantizerConfig, sensitivity: float) -> QuantizerConfig:
     """
-    Mappe un sensitivity continu [0.0-1.0] sur les paramètres du quantizer.
+    Affine le preset de base selon la sensibilité continue [0.0-1.0].
     
-    - 0.0  → quantification minimale (pas de snap, grille très fine)
-    - 0.5  → quantification moyenne (snap modéré, grille fine)
-    - 1.0  → quantification forte (snap agressif, grille grossière)
+    - 0.0  → quantification minimale (grille très fine 1/64, pas de snap)
+    - 0.5  → interpolation mi-chemin entre minimal et preset de base
+    - 1.0  → preset de base inchangé
     
-    Le mapping est non-linéaire pour donner plus de contrôle dans la zone
+    Le mapping utilise une courbe smoothstep pour plus de contrôle dans la zone
     0.3-0.7 où les artéfacts de transcription sont les plus critiques.
     """
     # Clamp dans [0, 1]
     s = max(0.0, min(1.0, sensitivity))
     
-    # Mapping non-linéaire : courbe en S pour plus de contrôle au milieu
-    if s < 0.5:
-        # Zone basse sensibilité : curve douce
-        t = s / 0.5  # normalisé [0, 1] dans cette zone
-        t_curve = t * t * (3 - 2 * t)  # smoothstep
-    else:
-        # Zone haute sensibilité : curve plus raide
-        t = (s - 0.5) / 0.5  # normalisé [0, 1] dans cette zone
-        t_curve = t * t * (3 - 2 * t)
+    # Mapping non-linéaire : smoothstep unique sur [0, 1]
+    # t_curve = 0 → config minimale, t_curve = 1 → preset de base
+    # À s=0.5 : t_curve = 0.5 (milieu exact)
+    t_curve = s * s * (3 - 2 * s)  # smoothstep
     
-    # Grid div : de 64 (très fin) à 4 (grossier)
-    # Plus s est élevé, plus grid_div est petit (grille grossière)
-    grid_div = max(4, min(64, int(round(64 - t_curve * 60))))
+    # Configuration "minimale" (s=0) : grille très fine, pas de snap, pas de fusion
+    MIN_GRID_DIV = 64
+    MIN_SNAP = 0.0
+    MIN_DUR = 0.0625  # 1/64
+    MIN_MERGE = 0.0
+    MIN_GAP = 0.05
     
-    # Snap threshold : de 0.0 (désactivé) à 0.50 (agressif)
-    snap_threshold = t_curve * 0.50
-    
-    # Min duration : de 0.0625 (1/64) à 0.25 (1/16)
-    min_dur = 0.0625 + t_curve * 0.1875
-    
-    # Min note gap : de 0.05 (très serré) à 0.15 (plus espacé)
-    min_gap = 0.05 + t_curve * 0.10
+    # Interpoler entre config minimale et preset de base
+    grid_div = max(4, min(64, int(round(MIN_GRID_DIV + (base.grid_div - MIN_GRID_DIV) * t_curve))))
+    snap_threshold = MIN_SNAP + (base.snap_threshold_ratio - MIN_SNAP) * t_curve
+    min_dur = MIN_DUR + (base.min_duration_beats - MIN_DUR) * t_curve
+    merge_thr = MIN_MERGE + (base.merge_threshold_beats - MIN_MERGE) * t_curve
+    min_gap = MIN_GAP + (base.min_note_gap_beats - MIN_GAP) * t_curve
     
     return QuantizerConfig(
         grid_div=grid_div,
         snap_threshold_ratio=snap_threshold,
         min_duration_beats=min_dur,
-        merge_threshold_beats=0.0 if t_curve < 0.3 else 0.05 * t_curve,
-        allow_triplets=True,
+        merge_threshold_beats=merge_thr,
+        allow_triplets=base.allow_triplets,
         min_note_gap_beats=min_gap,
     )
 

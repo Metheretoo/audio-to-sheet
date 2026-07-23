@@ -240,20 +240,20 @@
                 </div>
               </div>
 
-             <!-- Sensibilité de quantification -->
-             <div class="setting-item" title="Contrôle la précision de la quantification rythmique (l'arrondi des notes sur la grille).&#10;• 0.0 = Quantification minimale : pas de snap, timings bruts préservés.&#10;• 0.5 = Quantification moyenne : snap modéré.&#10;• 1.0 = Quantification forte : snap agressif sur la grille.&#10;• Utilisé EN PLUS du niveau de quantification (Légère/Standard/Forte) pour un contrôle plus fin.">
-              <label for="quantization-sensitivity" class="setting-label">
-                Sensibilité de quantification
-                <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
-              </label>
-              <input type="range" id="quantization-sensitivity" class="range-field" min="0" max="1" step="0.01"
-                value="0.5" disabled aria-label="Sensibilité de quantification" />
-              <div class="range-labels">
-                <span>Minimale</span>
-                <span>Forte</span>
-              </div>
-              <small class="setting-hint">Réglage fin en complément du niveau de quantification (Légère/Standard/Forte)</small>
-            </div>
+             <!-- Force d'alignement de la quantification -->
+             <div class="setting-item" title="Contrôle l'intensité de l'alignement rythmique sur la grille.&#10;• 0.0 = Rythme libre : timings bruts préservés (quasi 'Aucune').&#10;• 0.5 = Alignement intermédiaire entre 'Rythme libre' et le preset.&#10;• 1.0 = Alignement maximal selon le preset de quantification choisi.&#10;• Le preset 'Quantification' définit le plafond d'alignement.&#10;• Ex: 'Forte' + Force=0.3 → peu aligné (ideal pour mazurka/rubato).">
+               <label for="quantization-sensitivity" class="setting-label">
+                 Force d'alignement
+                 <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
+               </label>
+               <input type="range" id="quantization-sensitivity" class="range-field" min="0" max="1" step="0.01"
+                 value="0.5" disabled aria-label="Force d'alignement de la quantification" />
+               <div class="range-labels">
+                 <span>Rythme libre</span>
+                 <span>Plein alignement</span>
+               </div>
+               <small class="setting-hint">Ajuste l'alignement rythmique en complément du mode de quantification (de "Rythme libre" à "Plein alignement")</small>
+             </div>
 
 <!-- Affichage de la partition (togglable sans re-transcrire) -->
 <!-- MASQUÉ avant transcription : les options sont configurées par les presets -->

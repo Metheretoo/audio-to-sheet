@@ -58,16 +58,15 @@ python app.py
 
 L'application propose 5 presets configurés automatiquement. Voici leur configuration **réelle** telle qu'implémentée dans `frontend/js/app.js` (fonction `applyPreset`) :
 
-| Mode | Transcripteur | Demucs | Quantification | Seuil de détection | Rubato | Triolets | Filtrage harmonique | QS (sensitivity) | Usage recommandé |
-|------|---------------|--------|----------------|-------------|--------|----------|---------------------|------------------|------------------|
-| **Rapide** | hFT-Transformer | ❌ false | Light | 1.0 (max) | ❌ | ❌ | off | 0.5 | Aperçu immédiat sur fichier contenant uniquement du piano |
-| **Équilibré** ✅ (recommandé, actif par défaut) | Transkun | ❌ false | Standard | 0.55 | ❌ | ❌ | off | 0.5 | Majority des morceaux (Pop, YouTube, etc.) |
-| **Precision** | Piano Transcription | ❌ false | Heavy | 0.33 (sensible) | ✅ | ✅ | transkun-chord | 0.90 | Partitions classiques complexes (Chopin, Debussy...) avec minimum de notes en trop |
-| **Classique** | Piano Transcription | ❌ false | Light | 0.33 (sensible) | ✅ | ✅ | classical | 1.0 | Musique classique expressif, arpèges, notes douces |
-| **Jazz** | Piano Transcription | ❌ false | Heavy | 0.67 | ❌ | ❌ | off | 0.5 | Morceaux swing ou à rubato, simplification pour la lecture |
+| Mode | Transcripteur | Demucs | Quantification | Force d'alignement | Seuil de détection | Rubato | Triolets | Filtrage harmonique | Usage recommandé |
+|------|---------------|--------|----------------|-------------------|-------------|--------|----------|---------------------|------------------|
+| **Rapide** | hFT-Transformer | ❌ false | Light | 0.5 | 1.0 (max) | ❌ | ❌ | off | Aperçu immédiat sur fichier contenant uniquement du piano |
+| **Équilibré** ✅ (recommandé, actif par défaut) | Transkun | ❌ false | Standard | 0.5 | 0.55 | ❌ | ❌ | off | Majority des morceaux (Pop, YouTube, etc.) |
+| **Precision** | Piano Transcription | ❌ false | Heavy | 0.90 | 0.33 (sensible) | ✅ | ✅ | transkun-chord | Partitions classiques complexes (Chopin, Debussy...) avec minimum de notes en trop |
+| **Classique** | Piano Transcription | ❌ false | Light | 1.0 | 0.33 (sensible) | ✅ | ✅ | classical | Musique classique expressif, arpèges, notes douces |
+| **Jazz** | Piano Transcription | ❌ false | Heavy | 0.5 | 0.67 | ❌ | ❌ | off | Morceaux swing ou à rubato, simplification pour la lecture |
 
-> 💡 **QS** = Quantization Sensitivity (0.0 = brut, 1.0 = aligné sur grille).
-> 💡 Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **transkun-chord**.
+> 💡 **Force d'alignement** : 0.0 = Rythme libre (brut) → 1.0 = Alignement maximal sur le preset de quantification. Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **transkun-chord**.
 
 ### 3. Filtrage harmonique
 
@@ -171,7 +170,7 @@ Le filtre **transkun-chord** combine deux étapes :
 | Mesure | 4/4, 3/4, 2/4, 3/8, 6/8, 9/8, 12/8 |
 | Tonalité/Armure | Surcharger la tonalité détectée (13 options) |
 | Sensibilité de détection | Ajuste la sensibilité (0.10-0.90). Plus c'est haut, plus la détection est stricte (moins de notes) |
-| Sensibilité de quantification | Ajuste la précision de la quantification (0.00-1.00). Plus c'est haut, plus les notes sont alignées sur la grille |
+| Force d'alignement | Ajuste l'intensité de l'alignement rythmique (0.00-1.00). 0.0 = Rythme libre (brut) → 1.0 = Alignement maximal sur le preset de quantification sélectionné |
 
 ### 7. Transcription
 

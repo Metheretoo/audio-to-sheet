@@ -11,10 +11,11 @@ starlette>=0.37
 
 # ── HTTP / utils ──────────────────────────────────────────────────────────────
 requests>=2.31
+setuptools<81
 
 # ── Audio / ML core ───────────────────────────────────────────────────────────
 # NOTE : numpy < 1.27 requis pour madmom 0.16 (np.float/np.int supprimés en 1.24+)
-numpy>=1.23,<1.27
+numpy==1.26.4
 scipy>=1.10
 librosa>=0.10
 soundfile>=0.12
@@ -24,6 +25,7 @@ pretty_midi>=0.2.10
 # ── Beat tracking avancé (Phase 1 V2) ─────────────────────────────────────────
 # Prérequis : pip install cython==0.29.36 d'abord si madmom ne s'installe pas
 # NOTE : numpy < 1.27 obligatoire pour madmom 0.16
+Cython==0.29.36
 madmom>=0.16
 
 # ── Deep learning / PyTorch stack ───────────────────────────────────────────
