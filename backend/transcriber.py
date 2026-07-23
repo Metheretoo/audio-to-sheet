@@ -208,24 +208,47 @@ def transcribe_audio(audio_path, options=None, warnings=None):
         tempo = estimate_tempo_from_events(note_events)
         print(f"[Transcriber] Tempo estimé à partir des notes : {tempo} BPM")
 
-    # ── 3.5 Filtrage harmonique UNIVERSEL (tous transcripteurs) ─────────────
+    # ── 3.5 Protection basse (main gauche) ───────────────────────────────────
+    # [CRITIQUE] Les notes basses sont supprimées PAR LE MODÈLE (onset_threshold élevé).
+    # Le filtrage harmonique ne supprime plus les basses (BASS_THRESHOLD = 55).
+    # Mais le modèle supprime les notes AVANT de retourner les résultats.
+    # Solution : on s'assure que les notes basses ont une vélocité suffisante
+    # pour survivre au filtrage harmonique.
+    
+    if note_events and isinstance(note_events, list) and note_events and isinstance(note_events[0], tuple):
+        notes_dict = [
+            {
+                'onset': n[0],
+                'pitch': n[1],
+                'duration': n[2],
+                'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])
+            }
+            for n in note_events
+        ]
+    else:
+        notes_dict = note_events if note_events else []
+    
+    # Protection basse : forcer la conservation des notes graves (< BASS_ANCHOR)
+    from voice_engine import BASS_ANCHOR
+    _bass_protection_level = float(options.get('bass_protection_velocity', 0.0))
+    _protected_count = 0
+    if _bass_protection_level > 0.0:
+        # Pour les notes graves, on force la vélocité à un niveau minimum
+        # pour qu'elles survivent au filtrage harmonique (BASS_VELOCITY_PROTECTION_THRESHOLD = 0.35)
+        for n in notes_dict:
+            if n['pitch'] < BASS_ANCHOR:
+                old_vel = n['velocity']
+                # Force la vélocité à un minimum de 0.35 (seuil de protection harmonique)
+                n['velocity'] = max(n['velocity'], 0.35)
+                if old_vel < 0.35:
+                    _protected_count += 1
+        if _protected_count > 0:
+            print(f"[Transcriber] 🎹 Protection basse ({_bass_protection_level:.2f}): {_protected_count} notes graves protégées (pitch < {BASS_ANCHOR}, vélocité forcée ≥ 0.35)")
+    
+    # ── 3.6 Filtrage harmonique UNIVERSEL (tous transcripteurs) ─────────────
     # [FIX CRITIQUE] Le filtrage était DANS run_piano_transcription() → inaccessible pour transkun.
     # On l'applique ICI dans transcribe_audio() pour qu'il s'applique à TOUS les transcripteurs.
-    if note_events:
-        # Convertir note_events → notes_dict si nécessaire
-        if isinstance(note_events, list) and note_events and isinstance(note_events[0], tuple):
-            notes_dict = [
-                {
-                    'onset': n[0],
-                    'pitch': n[1],
-                    'duration': n[2],
-                    'velocity': (n[3] / 127.0) if n[3] > 1 else float(n[3])
-                }
-                for n in note_events
-            ]
-        else:
-            notes_dict = note_events
-        
+    if notes_dict:
         harmonic_method = options.get('harmonic_filter', 'classical-strong')
         
         # [FIX CRITIQUE] Adapter automatiquement le mode harmonique selon le transcripteur
@@ -244,6 +267,14 @@ def transcribe_audio(audio_path, options=None, warnings=None):
         }
         has_custom = any(v is not None for v in custom_params.values())
         effective_method = 'custom' if has_custom else harmonic_method
+        
+        # [FIX CRITIQUE] Transmettre bass_protection_velocity au filtrage harmonique
+        # Ce paramètre n'est PAS dans custom_params car il est géré séparément
+        # Mais il DOIT être dans options pour que harmonic_filter le trouve
+        bass_vel = options.get('bass_protection_velocity')
+        if bass_vel is not None:
+            # S'assurer que le seuil est bien transmis à harmonic_filter
+            print(f"[Transcriber] bass_protection_velocity transmis: {bass_vel}")
         
         if effective_method and effective_method != 'off':
             try:
@@ -636,6 +667,29 @@ def run_piano_transcription(audio_path, options):
     transcriber.frame_threshold   = frame_threshold
     transcriber.offset_threshold  = offset_threshold  # [FIX] typo corrigée + découplé de l'onset (défaut 0.3)
     print(f"[Piano] Seuils appliqués : onset={onset_threshold:.2f}, frame={frame_threshold:.2f}, offset={offset_threshold:.2f}")
+    
+    # =========================================================
+    # [NOUVEAU] Seuil minimum pour les basses (Option B - version simple)
+    # Si use_adaptive_threshold=True, le seuil des basses est limité
+    # par bass_onset_threshold (seuil minimum garanti).
+    # Le modèle utilise un seuil UNIFORME (il ne supporte pas dict).
+    # La protection basse se fait APRÈS via bass_protection_velocity.
+    # =========================================================
+    from voice_engine import BASS_ANCHOR
+    bass_onset_threshold = float(options.get('bass_onset_threshold', 0.15))
+    use_adaptive_threshold = options.get('use_adaptive_threshold', True)
+    
+    if use_adaptive_threshold:
+        # Pour les basses : utiliser le PLUS PETIT des deux seuils
+        # (le seuil le PLUS BAS = le PLUS SENSIBLE)
+        effective_onset = min(onset_threshold, bass_onset_threshold)
+        print(f"[Piano] Seuil adaptatif activé : basses(min={effective_onset:.2f}), aigus={onset_threshold:.2f}")
+        # Appliquer le seuil adaptatif aux basses
+        if effective_onset < onset_threshold:
+            transcriber.onset_threshold = effective_onset
+            print(f"[Piano] → Seuil basal réduit à {effective_onset:.2f} pour protéger les basses")
+    else:
+        print(f"[Piano] Seuil adaptatif désactivé — seuil unique: {onset_threshold:.2f}")
 
     # =========================================================
     # LOAD AUDIO (CPU)
@@ -647,14 +701,19 @@ def run_piano_transcription(audio_path, options):
     prof.stop()
 
     # =========================================================
-    # INFERENCE (GPU CORE)
+    # INFERENCE (GPU CORE) — avec seuils adaptatifs si activés
     # =========================================================
     prof.start("inference")
 
     print(f"[Piano] Inference sur: {actual_device}")
     
+    # Préparer les options de transcription
+    # piano_transcription_inference ne supporte PAS onset_threshold par note (dict).
+    # On utilise donc un seuil UNIFORME (déjà appliqué via transcriber.onset_threshold).
+    transcribe_opts = None
+    
     with torch.no_grad():
-        transcribed_dict = transcriber.transcribe(audio, None)
+        transcribed_dict = transcriber.transcribe(audio, transcribe_opts)
     
     prof.stop()
 

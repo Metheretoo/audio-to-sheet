@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initUploadZone();
   initThresholdSlider();
+  initAdaptiveThresholdSlider();
   initTranscriptionOptions();
   initToolbar();
   initKeyboardShortcuts();
@@ -185,32 +186,31 @@ function initUploadZone() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   Slider de seuil
+   Slider de seuil (Seuil de détection)
    ═══════════════════════════════════════════════════════════════════════════ */
 function initThresholdSlider() {
   const slider = document.getElementById('onset-threshold');
   const display = document.getElementById('threshold-display');
   if (!slider || !display) return;
+
+  // La valeur du slider est maintenant directement le seuil onset (0.20 → 0.85)
+  // Pas besoin de conversion : slider.value = onset_threshold réel
   slider.addEventListener('input', () => {
-    display.textContent = sensitivityToOnset(parseFloat(slider.value)).toFixed(2);
+    display.textContent = parseFloat(slider.value).toFixed(2);
   });
 }
 
-/**
- * Position du slider (0..1) -> seuil d'onset réel.
- *
- * 0.00 = très sensible (0.20)
- * 0.50 = normal (0.50)
- * 1.00 = très strict (0.85)
- */
-function sensitivityToOnset(position) {
-    position = Math.max(0, Math.min(1, Number(position)));
+/* ═══════════════════════════════════════════════════════════════════════════
+   Slider de seuil adaptatif (Seuil basses)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function initAdaptiveThresholdSlider() {
+  const slider = document.getElementById('bass-onset-threshold');
+  const display = document.getElementById('bass-onset-threshold-display');
+  if (!slider || !display) return;
 
-    const MIN = 0.20;
-    const MAX = 0.85;
-
-    // Courbe douce (plus de précision autour du milieu)
-    return +(MIN + (MAX - MIN) * Math.pow(position, 1.35)).toFixed(2);
+  slider.addEventListener('input', () => {
+    display.textContent = parseFloat(slider.value).toFixed(2);
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -287,7 +287,8 @@ function initTranscriptionOptions() {
     };
 
     if (presetName === 'rapide') {
-      setTranscriberValue('hft');
+      // Basic Pitch est rapide et léger, idéal pour un aperçu immédiat
+      setTranscriberValue('basic_pitch');
       if (useDemucsCb) useDemucsCb.checked = false;
       setQuantizationValue('light');
       if (removeShortCb) removeShortCb.checked = false;
@@ -300,11 +301,12 @@ function initTranscriptionOptions() {
       if (enableTriplets) enableTriplets.checked = false;
       // Les toggles d'affichage sont maintenant masqués avant transcription
       // et synchronisés automatiquement après la transcription
-      if (thresholdSlider) thresholdSlider.value = 1;
+      if (thresholdSlider) thresholdSlider.value = 0.85;  // basse sensibilité max
       setHarmonicFilterValue('off');
       if (qsSlider) qsSlider.value = 0.5;
     } else if (presetName === 'equilibre') {
-      setTranscriberValue('transkun');
+      // Équilibré = Piano Transcription (pas Transkun) — slider de sensibilité fonctionnel
+      setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
       setQuantizationValue('standard');
       if (removeShortCb) removeShortCb.checked = false;
@@ -353,9 +355,14 @@ function initTranscriptionOptions() {
       if (enableRubato) enableRubato.checked = true;
       if (enableTriplets) enableTriplets.checked = true;
       // Les toggles d'affichage sont maintenant masqués avant transcription
-      if (thresholdSlider) thresholdSlider.value = 0.33;
+      if (thresholdSlider) thresholdSlider.value = 0.20;  // Seuil le plus bas pour capter le maximum de notes
       if (qsSlider) qsSlider.value = 1;
       setHarmonicFilterValue('classical');
+      // Activer le détection adaptative basses/aigus pour ce preset
+      const adaptiveCb = document.getElementById('use-adaptive-threshold');
+      if (adaptiveCb) adaptiveCb.checked = true;
+      const bassOnsetSlider = document.getElementById('bass-onset-threshold');
+      if (bassOnsetSlider) bassOnsetSlider.value = 0.10;  // Très sensible pour les basses
 	} else if (presetName === 'jazz') {
       setTranscriberValue('piano_transcription');
       if (useDemucsCb) useDemucsCb.checked = false;
@@ -378,7 +385,7 @@ function initTranscriptionOptions() {
 
     const display = document.getElementById('threshold-display');
     if (display && thresholdSlider) {
-      display.textContent = sensitivityToOnset(parseFloat(thresholdSlider.value)).toFixed(2);
+      display.textContent = parseFloat(thresholdSlider.value).toFixed(2);
     }
     toggleManualFields();
     updateQuantizationSensitivitySlider();
@@ -394,17 +401,27 @@ function initTranscriptionOptions() {
       if (tempoInput && disabled) tempoInput.value = '';
     }
     
-    // Griser le slider "Sensibilité de détection" quand Transkun est sélectionné
-    // (inopérant car Transkun utilise ses propres seuils internes)
+  // Griser le slider "Seuil de détection" quand Transkun est sélectionné
+  // (inopérant car Transkun utilise ses propres seuils internes)
     const onsetSlider = document.getElementById('onset-threshold');
-    const onsetLabel = document.getElementById('onset-threshold-label');
     const isTranskun = getTranscriberValue() === 'transkun';
     if (onsetSlider) {
       onsetSlider.disabled = isTranskun;
-      onsetSlider.title = isTranskun ? 'Inopérant avec Transkun (utilise ses propres seuils internes)' : 'Ajuste la sensibilité de détection des notes';
-    }
-    if (onsetLabel) {
-      onsetLabel.style.opacity = isTranskun ? '0.5' : '1';
+      onsetSlider.title = isTranskun
+        ? 'Inopérant avec Transkun — utilise ses propres seuils internes'
+        : 'Ajuste le seuil de détection des notes (0.20 = minimal → 0.85 = maximal)';
+      // Style visuel flagrant pour Transkun
+      if (isTranskun) {
+        onsetSlider.style.opacity = '0.35';
+        onsetSlider.style.cursor = 'not-allowed';
+        onsetSlider.style.pointerEvents = 'none';
+        onsetSlider.style.filter = 'grayscale(80%)';
+      } else {
+        onsetSlider.style.opacity = '1';
+        onsetSlider.style.cursor = '';
+        onsetSlider.style.pointerEvents = '';
+        onsetSlider.style.filter = '';
+      }
     }
   }
 
@@ -504,6 +521,15 @@ function initTranscriptionOptions() {
       updateCustomHarmonicVisibility(harmonicFilterEl.value);
       checkPresetMatch();
       toggleManualFields();
+    });
+  }
+
+  // Listener pour le slider "Protection basse" — affichage de la valeur
+  const bassProtectionSlider = document.getElementById('bass-protection');
+  const bassProtectionDisplay = document.getElementById('bass-protection-display');
+  if (bassProtectionSlider && bassProtectionDisplay) {
+    bassProtectionSlider.addEventListener('input', () => {
+      bassProtectionDisplay.textContent = parseFloat(bassProtectionSlider.value).toFixed(2);
     });
   }
 
@@ -776,7 +802,7 @@ async function startTranscription(file) {
 
   const formData = new FormData();
   formData.append('audio', file, file.name);
-  formData.append('onset_threshold', sensitivityToOnset(parseFloat(document.getElementById('onset-threshold').value)));
+  formData.append('onset_threshold', parseFloat(document.getElementById('onset-threshold').value));
   formData.append('frame_threshold', document.getElementById('frame-threshold')?.value || '0.1');
   formData.append('offset_threshold', document.getElementById('offset-threshold')?.value || '0.3');
   formData.append('transcriber', document.querySelector('input[name="transcriber"]:checked')?.value || 'piano_transcription');
@@ -816,12 +842,27 @@ async function startTranscription(file) {
      if (customTime !== undefined && customTime !== '') {
        formData.append('harmonic_time_tolerance', customTime);
      }
-     if (customBass !== undefined && customBass !== '') {
-       formData.append('harmonic_bass_threshold', customBass);
-     }
-   }
-   
-   formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
+    if (customBass !== undefined && customBass !== '') {
+      formData.append('harmonic_bass_threshold', customBass);
+    }
+    }
+
+    // NOUVEAU : Protection basse (main gauche)
+    const bassProtection = document.getElementById('bass-protection')?.value;
+    if (bassProtection !== undefined && bassProtection !== '') {
+      formData.append('bass_protection_velocity', bassProtection);
+    }
+    
+    // NOUVEAU : Seuil adaptatif basses/aigus
+    const useAdaptiveThreshold = document.getElementById('use-adaptive-threshold')?.checked;
+    formData.append('use_adaptive_threshold', useAdaptiveThreshold);
+    
+    const bassOnsetThreshold = document.getElementById('bass-onset-threshold')?.value;
+    if (bassOnsetThreshold !== undefined && bassOnsetThreshold !== '') {
+      formData.append('bass_onset_threshold', bassOnsetThreshold);
+    }
+    
+    formData.append('time_sig', document.getElementById('time-sig')?.value || '4/4');
    formData.append('key_sig', document.getElementById('key-sig-upload')?.value || document.getElementById('key-sig-toolbar')?.value || 'C');
 
   const tempoOverride = document.getElementById('tempo-override')?.value;

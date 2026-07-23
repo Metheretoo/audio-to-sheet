@@ -32,7 +32,7 @@ class VoiceSplit:
 BASS_MAX_MIDI   = 65     # Fa4 — au-dessus, toujours main droite (sauf exception)
 TREBLE_MIN_MIDI = 55     # Sol3 — en-dessous, toujours main gauche (sauf exception)
 GREY_ZONE       = (55, 65)  # Zone de décision contextuelle
-BASS_ANCHOR     = 48     # Do3 — notes sous ce seuil → TOUJOURS main gauche
+BASS_ANCHOR     = 55     # Si3 — notes sous ce seuil → TOUJOURS main gauche (élargi de 48 à 55)
 
 # Poids pour le score de décision
 WEIGHT_PITCH      = 0.5   # Importance du registre absolu
@@ -142,18 +142,18 @@ def split_with_harmony(
     dist[0][0] = 0.0 if note0.pitch_midi >= TREBLE_MIN_MIDI else INF
     dist[0][1] = 0.0 if note0.pitch_midi <= BASS_MAX_MIDI else INF
     # Forcer les règles absolues
-    if note0.pitch_midi <= BASS_ANCHOR:
+    if note0.pitch_midi < BASS_ANCHOR:
         dist[0][0] = INF; dist[0][1] = 0.0
-    elif note0.pitch_midi > BASS_MAX_MIDI:
+    elif note0.pitch_midi >= BASS_MAX_MIDI:
         dist[0][0] = 0.0; dist[0][1] = INF
 
     for i in range(1, n_notes):
         note = sorted_notes[i]
         for h in range(2):  # 0=treble, 1=bass
             # Règles absolues
-            if note.pitch_midi <= BASS_ANCHOR and h == 0:
+            if note.pitch_midi < BASS_ANCHOR and h == 0:
                 continue
-            if note.pitch_midi > BASS_MAX_MIDI and h == 1:
+            if note.pitch_midi >= BASS_MAX_MIDI and h == 1:
                 continue
             # Trouver le meilleur état précédent
             for ph in range(2):
@@ -188,7 +188,7 @@ def split_with_harmony(
     treble_notes = []
     bass_notes   = []
     for i, note in enumerate(sorted_notes):
-        h = hands[i] if hands[i] is not None else (1 if note.pitch_midi <= BASS_ANCHOR else 0)
+        h = hands[i] if hands[i] is not None else (1 if note.pitch_midi < BASS_ANCHOR else 0)
         if h == 0:
             note.hand = 'treble'
             treble_notes.append(note)
@@ -299,8 +299,8 @@ def _classify_group(
 
     Règles par ordre de priorité :
 
-    1. RÈGLE ABSOLUE BASSE : pitch < BASS_ANCHOR (48) → bass, toujours.
-    2. RÈGLE ABSOLUE AIGUË : pitch > BASS_MAX_MIDI (65) → treble, toujours.
+    1. RÈGLE ABSOLUE BASSE : pitch ≤ BASS_ANCHOR (55) → bass, toujours.
+    2. RÈGLE ABSOLUE AIGUË : pitch ≥ BASS_MAX_MIDI (65) → treble, toujours.
     3. ZONE GRISE [55-65] : utiliser score_decision() pour décider.
     4. ACCORD : si plusieurs notes simultanées, la note la plus basse dans la zone
        va à la bass, les autres au treble (règle de fondamentale).
@@ -313,7 +313,7 @@ def _classify_group(
     for note in group:
         pitch = note.pitch_midi
 
-        if pitch <= BASS_ANCHOR:
+        if pitch < BASS_ANCHOR:
             bass_notes.append(note)
             continue
 
@@ -321,22 +321,23 @@ def _classify_group(
             treble_notes.append(note)
             continue
 
-        # Règle 3 : zone grise [55-65] → score décision
-        if GREY_ZONE[0] <= pitch <= GREY_ZONE[1]:
-            decision = score_decision(note, group)
+        # Règle 3 : zone grise [BASS_ANCHOR, BASS_MAX_MIDI) → score décision
+        # Avec BASS_ANCHOR=55 et BASS_MAX_MIDI=65, c'est [55, 65)
+        if BASS_ANCHOR <= pitch < BASS_MAX_MIDI:
+            decision = score_decision(note, group, options)
             if decision == 'treble':
                 treble_notes.append(note)
             else:
                 bass_notes.append(note)
             continue
 
-        # Règle 4 : notes entre BASS_ANCHOR et GREY_ZONE[0] (48-54) → bass par défaut
+        # Règle 4 : notes entre BASS_ANCHOR et GREY_ZONE[0] (55-55) → bass par défaut
         bass_notes.append(note)
 
     return treble_notes, bass_notes
 
 
-def score_decision(note: QuantizedNote, group: List[QuantizedNote]) -> str:
+def score_decision(note: QuantizedNote, group: List[QuantizedNote], options: dict = None) -> str:
     """
     Calcule un score pour décider si une note en zone grise va à treble ou bass.
 
@@ -350,6 +351,10 @@ def score_decision(note: QuantizedNote, group: List[QuantizedNote]) -> str:
 
     - Amplitude :
       Une note forte et basse est souvent une basse → bass si amp > 0.6 et pitch < 60
+
+    - NOUVEAU : Vélocité pour les basses
+      Une note grave (< 50) avec vélocité > 0.20 est protégée (main gauche légitime)
+      Une note en zone grise avec vélocité > 0.50 tend vers main droite
 
     Retourne 'treble' ou 'bass'.
     """
@@ -370,6 +375,55 @@ def score_decision(note: QuantizedNote, group: List[QuantizedNote]) -> str:
     # Facteur 3 : amplitude
     if note.amplitude > 0.65 and note.pitch_midi < 60:
         score_bass += 0.15
+
+    # NOUVEAU : Facteur vélocité pour distinguer LH/RH en zone grise
+    # PROTECTION PROGRESSIVE basée sur la vélocité
+    # - velocity < 0.15  → bonus maximal (basses jouées doucement)
+    # - velocity 0.15-0.30 → bonus fort (basses jouées normalement)
+    # - velocity 0.30-0.50 → bonus réduit (basses fortes, mais légitimes)
+    # - velocity > 0.50  → bonus faible (notes mélodiques aiguës)
+    if hasattr(note, 'velocity') and note.velocity is not None:
+        velocity = note.velocity
+    else:
+        velocity = note.amplitude
+    
+    # Bonus progressif pour les basses (notes graves avec vélocité modérée)
+    # Avec BASS_ANCHOR=55, les notes < 55 ont déjà été attribuées à bass dans _classify_group
+    # Donc ici on ne traite que la zone grise [55, 65)
+    if BASS_ANCHOR <= note.pitch_midi < BASS_MAX_MIDI:
+        if velocity < 0.15:
+            score_bass += 0.35  # Tend vers main gauche (basse jouée doucement)
+        elif velocity < 0.30:
+            score_bass += 0.28  # Tend vers main gauche (basse jouée normalement)
+        elif velocity < 0.50:
+            score_bass += 0.15  # Légère tendance main gauche
+        else:
+            score_bass -= 0.05  # Légère tendance main droite (note forte = mélodie)
+    else:
+        # Note en zone grise ou au-dessus
+        if BASS_ANCHOR <= note.pitch_midi < BASS_MAX_MIDI:
+            if velocity > 0.50:
+                score_bass -= 0.15  # Tend vers main droite
+    
+    # [NOUVEAU] Protection basse renforcée depuis le paramètre UI
+    # Les basses protégées reçoivent un bonus massif pour forcer la main gauche
+    if hasattr(note, 'velocity') and note.velocity is not None:
+        # Obtenir le seuil de protection basse (de options ou par défaut)
+        protection_threshold = None
+        if options and 'bass_protection_velocity' in options:
+            protection_threshold = options['bass_protection_velocity']
+        if protection_threshold is None:
+            from note_filter import BASS_PROTECTION_THRESHOLD
+            protection_threshold = BASS_PROTECTION_THRESHOLD
+        
+        # Seuil bas : en dessous de 35% du seuil → bonus massif LH
+        low_threshold = protection_threshold * 0.35
+        if note.amplitude <= low_threshold and note.pitch_midi < BASS_MAX_MIDI:
+            score_bass += 2.0  # Bonus très fort pour main gauche
+        
+        # Si la note est très grave (< 36 = Do1) → toujours main gauche
+        if note.pitch_midi < 36:
+            score_bass += 1.5
 
     return 'bass' if score_bass > 0.5 else 'treble'
 

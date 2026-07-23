@@ -100,6 +100,10 @@
                   <input type="radio" name="transcriber" value="hft" />
                   <span>hFT-Transformer (Sony)</span>
                 </label>
+                <label class="radio-label-premium" title="Basic Pitch (Spotify) : Modèle rapide et léger, bon pour les tests comparatifs.">
+                  <input type="radio" name="transcriber" value="basic_pitch" />
+                  <span>Basic Pitch (Spotify)</span>
+                </label>
               </div>
             </div>
 
@@ -240,8 +244,23 @@
                 </div>
               </div>
 
-             <!-- Force d'alignement de la quantification -->
-             <div class="setting-item" title="Contrôle l'intensité de l'alignement rythmique sur la grille.&#10;• 0.0 = Rythme libre : timings bruts préservés (quasi 'Aucune').&#10;• 0.5 = Alignement intermédiaire entre 'Rythme libre' et le preset.&#10;• 1.0 = Alignement maximal selon le preset de quantification choisi.&#10;• Le preset 'Quantification' définit le plafond d'alignement.&#10;• Ex: 'Forte' + Force=0.3 → peu aligné (ideal pour mazurka/rubato).">
+              <!-- Protection basse (main gauche) -->
+              <div class="setting-item" title="Protège les notes graves (main gauche) en fonction de leur vélocité.&#10;• En piano, les basses sonnent naturellement fort et sont jouées avec moins de force (vélocité ~25-30/127 ≈ 0.20-0.24).&#10;• Les notes graves AU-DESSUS de ce seuil sont protégées et jamais supprimées par le filtrage.&#10;• Augmentez ce seuil si vous perdez des notes de basse légitimes.&#10;• Valeur recommandée : 0.30-0.50 pour un équilibre, > 0.60 pour une protection maximale.">
+                <label class="setting-label">
+                  🎹 Protection basse (main gauche)
+                  <span id="bass-protection-display" class="threshold-val">0.35</span>
+                </label>
+                <input type="range" id="bass-protection" class="range-field" min="0.00" max="1.00" step="0.05"
+                  value="0.35" aria-label="Seuil de protection des basses" />
+                <div class="range-labels">
+                  <span>0.00 (protège moins)</span>
+                  <span>1.00 (protège plus)</span>
+                </div>
+                <small class="setting-hint">Notes graves au-dessus de ce seuil de vélocité sont protégées (main gauche légitime)</small>
+              </div>
+
+              <!-- Force d'alignement de la quantification -->
+              <div class="setting-item" title="Contrôle l'intensité de l'alignement rythmique sur la grille.&#10;• 0.0 = Rythme libre : timings bruts préservés (quasi 'Aucune').&#10;• 0.5 = Alignement intermédiaire entre 'Rythme libre' et le preset.&#10;• 1.0 = Alignement maximal selon le preset de quantification choisi.&#10;• Le preset 'Quantification' définit le plafond d'alignement.&#10;• Ex: 'Forte' + Force=0.3 → peu aligné (ideal pour mazurka/rubato).">
                <label for="quantization-sensitivity" class="setting-label">
                  Force d'alignement
                  <span id="quantization-sensitivity-display" class="threshold-val">N/A</span>
@@ -255,27 +274,7 @@
                <small class="setting-hint">Ajuste l'alignement rythmique en complément du mode de quantification (de "Rythme libre" à "Plein alignement")</small>
              </div>
 
-<!-- Affichage de la partition (togglable sans re-transcrire) -->
-<!-- MASQUÉ avant transcription : les options sont configurées par les presets -->
-<div class="setting-item show-before-score" style="display: none;">
-  <span class="setting-label">Affichage de la partition</span>
-  <div class="checkbox-group">
-    <label class="checkbox-label-premium" title="Affiche/masque les annotations de pédale forte (Ped. / *) sans avoir besoin de relancer la transcription.">
-      <input type="checkbox" id="show-pedal" checked />
-      <span>Pédale</span>
-    </label>
-    <label class="checkbox-label-premium" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée, disponible pour tous les presets, pas seulement Jazz. Ne nécessite pas de relancer la transcription.">
-      <input type="checkbox" id="show-chords" checked />
-      <span>Noms d'accords</span>
-    </label>
-    <label class="checkbox-label-premium" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) entre la portée et les accords, pour aider les débutants. Ne nécessite pas de relancer la transcription.">
-      <input type="checkbox" id="show-highest-note" checked />
-      <span>Note la plus haute</span>
-    </label>
-  </div>
-</div>
-
-            <!-- Piano Uniquement -->
+             <!-- Piano Uniquement -->
             <div class="setting-item">
               <span class="setting-label">Séparation des mains</span>
               <label class="checkbox-label-premium">
@@ -347,21 +346,63 @@
               <small class="setting-hint">Surcharger la tonalité détectée</small>
             </div>
 
-            <div class="setting-item">
-              <label for="onset-threshold" class="setting-label" title="Ajuste la sensibilité de l'IA aux attaques des notes.&#10;• Vers la gauche (0 = haute sensibilité) : Seuil bas (0.05) → capte les notes plus douces, mais risque de fausses notes.&#10;• Vers la droite (1 = basse sensibilité) : Seuil haut (0.50) → plus strict, ignore le bruit, mais risque de manquer des notes faibles.&#10;Formule : onset_threshold = clamp(0.65 − 0.5 × sensibilité, 0.05, 0.5)">
-                Sensibilité de détection
+            <div class="setting-item" title="Ajuste directement le seuil de détection des attaques de notes par l'IA.&#10;• Valeur basse (0.20) : capte les notes très douces, mais risque de fausses détections.&#10;• Valeur haute (0.85) : plus strict, ignore le bruit de fond, mais risque de manquer des notes faibles.&#10;• Recommandé : 0.40-0.50 pour la plupart des fichiers.">
+              <label for="onset-threshold" class="setting-label">
+                Seuil de détection
                 <span id="threshold-display" class="threshold-val">0.50</span>
               </label>
-              <input type="range" id="onset-threshold" class="range-field" min="0" max="1" step="0.01"
-                value="0.40" aria-label="Sensibilité de détection des notes" />
+              <input type="range" id="onset-threshold" class="range-field" min="0.20" max="0.85" step="0.01"
+                value="0.50" aria-label="Seuil de détection des notes" />
               <div class="range-labels">
-                <span>Haute sensibilité</span>
-                <span>Basse sensibilité</span>
+                <span>0.20 (flexible)</span>
+                <span>0.85 (strict)</span>
               </div>
+            </div>
+
+            <!-- Seuil adaptatif basses/aigus -->
+            <div class="setting-item" title="Active un seuil de détection différentiel pour les basses et les aigus.&#10;• Les notes graves (main gauche, < BASS_ANCHOR≈55) utilisent un seuil plus bas pour être détectées même avec une attaque douce.&#10;• Les notes aiguës (main droite, ≥ BASS_ANCHOR) utilisent le seuil de détection principal.&#10;• Activez cette option si vous perdez des notes de basse à sensibilité élevée.&#10;• Ajustez 'Seuil basses' pour contrôler la sensibilité des graves.">
+              <label class="checkbox-label-premium">
+                <input type="checkbox" id="use-adaptive-threshold" checked />
+                <span>🎹 Seuil adaptatif basses/aigus</span>
+              </label>
+              <small class="setting-hint">Détection différenciée : plus sensible pour les basses (main gauche), plus strict pour les aigus (main droite)</small>
+            </div>
+
+            <div class="setting-item" id="adaptive-bass-threshold-item" style="display:block;">
+              <label class="setting-label">
+                Seuil basses (main gauche)
+                <span id="bass-onset-threshold-display" class="threshold-val">0.15</span>
+              </label>
+              <input type="range" id="bass-onset-threshold" class="range-field" min="0.05" max="0.85" step="0.01"
+                value="0.15" aria-label="Seuil de détection pour les basses" />
+              <div class="range-labels">
+                <span>0.05 (ultra sensible)</span>
+                <span>0.85 (strict)</span>
+              </div>
+              <small class="setting-hint">Seuil spécifique pour les notes graves (< BASS_ANCHOR≈55). Plus bas = capte les attaques plus douces.</small>
             </div>
 
           </div>
         </details>
+
+        <!-- Affichage de la partition (togglable sans re-transcrire) — HORS advanced settings -->
+        <div class="setting-item show-before-score" style="display: none;" title="Affiche/masque les annotations de la partition sans avoir besoin de relancer la transcription.">
+          <span class="setting-label">🎼 Affichage de la partition</span>
+          <div class="checkbox-group">
+            <label class="checkbox-label-premium" title="Affiche/masque les annotations de pédale forte (Ped. / *) sans avoir besoin de relancer la transcription.">
+              <input type="checkbox" id="show-pedal" checked />
+              <span>Pédale</span>
+            </label>
+            <label class="checkbox-label-premium" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée, disponible pour tous les presets, pas seulement Jazz. Ne nécessite pas de relancer la transcription.">
+              <input type="checkbox" id="show-chords" checked />
+              <span>Noms d'accords</span>
+            </label>
+            <label class="checkbox-label-premium" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) entre la portée et les accords, pour aider les débutants. Ne nécessite pas de relancer la transcription.">
+              <input type="checkbox" id="show-highest-note" checked />
+              <span>Note la plus haute</span>
+            </label>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -586,10 +627,10 @@
   <!-- ══ Scripts ════════════════════════════════════════════════════════════════ -->
   <script src="/js/lib/soundfont-player.min.js"></script>
   <script src="/js/lib/vexflow.js"></script>
-<script src="/js/renderer.js?v=37"></script>
-<script src="/js/editor.js?v=20"></script>
-  <script src="/static/js/ScorePlayer.js?v=13"></script>
-<script src="/static/js/app.js?v=23"></script>
+<script src="/js/renderer.js?v=39"></script>
+<script src="/js/editor.js?v=22"></script>
+  <script src="/js/ScorePlayer.js?v=15"></script>
+<script src="/js/app.js?v=27"></script>
 
 </body>
 

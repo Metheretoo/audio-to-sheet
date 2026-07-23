@@ -398,6 +398,23 @@ def build_voice_vexflow(
     # [P-Arp] Détecter et fusionner les accords arpégés AVANT le groupement
     notes = _merge_arpeggios(notes, key_sig)
 
+    # [FIX] Aligner les notes dont les positions sont très proches (< 0.05 beat)
+    # sur la même position. Cela capture les accords brisés rapides non détectés
+    # comme arpèges (ex: triple croches proches en musique classique).
+    _ALIGN_THRESHOLD = 0.05  # beats
+    aligned_notes = []
+    if notes:
+        current_pos = notes[0].beat_position
+        aligned_notes.append(notes[0])
+        for n in notes[1:]:
+            if abs(n.beat_position - current_pos) <= _ALIGN_THRESHOLD:
+                # Aligner sur la position courante
+                n.beat_position = current_pos
+            else:
+                current_pos = n.beat_position
+            aligned_notes.append(n)
+        notes = aligned_notes
+
     # Grouper par position (accords)
     chords: Dict[float, List[QuantizedNote]] = {}
     for n in notes:

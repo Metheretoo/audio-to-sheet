@@ -57,6 +57,9 @@ torch-optimizer>=0.3
 # ── Audio separation (si activé dans options) ────────────────────────────────
 demucs>=4.0
 
+# ── Basic Pitch (Spotify audio-to-sheet) ──────────────────────────────────────
+basic-pitch>=0.4.0
+
 # ── Optional ONNX/OpenVINO (pour basic-pitch si réactivé) ────────────────────
 # onnxruntime-openvino>=1.17  # retiré: dépendait de basic-pitch
 

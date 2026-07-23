@@ -25,7 +25,8 @@ Else
     WScript.Sleep 500
 
     ' ── Démarrer le serveur Flask en arrière-plan (fenêtre masquée) ──────────
-	WshShell.Run "cmd /c cd /d ""D:\IA\Antigravity\audio-to-sheet"" && set PYTHONIOENCODING=utf-8 && call venv\Scripts\activate.bat && python backend\app.py", 0
+    ' Le venv est dans le dossier audio-to-sheet/ (pas backend/)
+    WshShell.Run "cmd /c cd /d ""D:\IA\Antigravity\audio-to-sheet"" && set PYTHONIOENCODING=utf-8 && call venv\Scripts\activate.bat && python backend\app.py", 0
 
     ' ── Attendre que le serveur réponde (jusqu'à 30 s) ───────────────────────
     Dim tries, ready

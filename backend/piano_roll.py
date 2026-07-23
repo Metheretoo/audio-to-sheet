@@ -22,9 +22,12 @@ class Slice:
     onset_tolerance_ms: float = 30.0
     pedal_active: bool = False
 
+# [FIX] Augmentation onset_tolerance_beats : 0.03 → 0.15 beat
+# Pour musique classique avec rubato, les notes d'un accord peuvent être
+# légèrement décalées. On élargit la fenêtre de groupement.
 def group_into_slices(
     qnotes: list,
-    onset_tolerance_beats: float = 0.03,  # ~30ms à 60 BPM
+    onset_tolerance_beats: float = 0.15,  # Augmenté pour regrouper notes proches
     pedal_events: List[tuple[float, float]] = None
 ) -> List[Slice]:
     """
@@ -80,10 +83,13 @@ def _make_slice(notes: list, pedal_events: List[tuple[float, float]]) -> Slice:
         pedal_active=in_pedal
     )
 
+# [FIX] Augmentation max_span_beats : 1.0 → 2.0 beats
+# Pour musique classique (Mazurka Chopin) : les accords brisés rapides
+# peuvent s'étendre sur ~1.5 beat avec le rubato
 def fuse_arpeggios(
     slices: List[Slice],
-    max_span_beats: float = 1.0,   # Un arpège tient dans 1 beat typiquement
-    min_notes_in_arpeggio: int = 3
+    max_span_beats: float = 2.0,   # Augmenté pour regrouper notes proches en accords
+    min_notes_in_arpeggio: int = 2  # Réduit à 2 pour capturer plus de cas
 ) -> List[Slice]:
     """
     Fusionne les séquences rapides de notes isolées en un seul Slice

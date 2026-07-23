@@ -162,15 +162,29 @@ def _nearest_notation(beats: float) -> Tuple[str, int]:
     return d[1], d[2]
 
 
+# ────────────────────────────────────────────────────────────── Protection basse
+# Seuil en-dessous duquel une note est considérée comme "grave" (main gauche)
+_BASS_PROTECT_PITCH = 55  # Si3 — notes < ce seuil sont protégées
+# Seuil de vélocité minimal pour qu'une note grave soit considérée comme légitime
+_BASS_PROTECT_MIN_VELOCITY = 0.01  # Presque n'importe quelle note grave est légitime
+
+
 def _merge_same_pitch(notes: List[QuantizedNoteV4], thr: float) -> List[QuantizedNoteV4]:
+    """Fusionne les notes de même pitch consécutives, MAIS protège les notes graves."""
     if thr <= 0 or not notes:
         return notes
     notes = sorted(notes, key=lambda n: (n.pitch_midi, n.beat_position))
     merged: List[QuantizedNoteV4] = []
     for n in notes:
         prev = merged[-1] if merged else None
-        if prev and prev.pitch_midi == n.pitch_midi and \
-           (n.beat_position - prev.beat_end) < thr:
+        # PROTECTION BASSE : ne jamais fusionner une note grave protégée
+        is_bass_protected = (
+            n.pitch_midi < _BASS_PROTECT_PITCH and
+            n.amplitude >= _BASS_PROTECT_MIN_VELOCITY
+        )
+        if (prev and prev.pitch_midi == n.pitch_midi and
+            not is_bass_protected and
+            (n.beat_position - prev.beat_end) < thr):
             prev.beat_duration = (n.beat_position + n.beat_duration) - prev.beat_position
             prev.amplitude = max(prev.amplitude, n.amplitude)
             prev.dur_str, prev.dots = _nearest_notation(prev.beat_duration)

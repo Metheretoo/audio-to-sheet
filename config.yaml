@@ -5,9 +5,9 @@
 # MODÈLES DE TRANSCRIPTION
 # ─────────────────────────────────────────────────────────────────────────────
 transcriber:
-  # piano_transcription recommandé pour piano classique
-  # (basic_pitch retiré : qualité inférieure sur piano classique)
-  default: "piano_transcription"
+   # piano_transcription recommandé pour piano classique
+   # (basic_pitch — réactivé en option pour tests comparatifs)
+   default: "piano_transcription"
   models:
     basic_pitch:
       model_path: "models/basic_pitch"
@@ -64,6 +64,24 @@ transcriber:
     min_votes: 2               # Votes minimum pour garder une note
     velocity_aggregation: "weighted_mean"  # "max" | "mean" | "weighted_mean"
     duration_aggregation: "median"         # "median" | "mean" | "weighted_mean"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SEUIL DE DÉTECTION ADAPTATIF (basses / aigus)
+# ─────────────────────────────────────────────────────────────────────────────
+# Le seuil adaptatif compense le fait que piano_transcription_inference
+# ne supporte PAS onset_threshold par note (dict).
+# Au lieu de cela, on réduit le seuil UNIFORME du modèle quand le
+# seuil adaptatif est activé, et on protège les basses APRÈS via
+# bass_protection_velocity dans le filtrage harmonique.
+detection_threshold:
+  enabled: true              # Activé par défaut
+  # Seuil minimum pour les basses (pitch < 55)
+  # Le seuil effectif du modèle = min(onset_threshold, bass_onset_threshold)
+  bass_onset_threshold: 0.15 # Plage: 0.05-0.85 (plus bas = plus sensible)
+  # Protection basse (main gauche) — vélocité minimale forcée
+  # Les notes graves (pitch < 55) avec vélocité < 0.35 sont forcées à 0.35
+  # pour survivre au filtrage harmonique.
+  bass_protection_velocity: 0.35  # Plage: 0.00-1.00 (0 = désactivé)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SÉPARATION AUDIO (DEMUCS)
@@ -168,6 +186,12 @@ ornaments:
   grace_note_max_duration: 0.15  # secondes
   trill_min_speed: 8  # Hz
   mordent_max_duration: 0.2
+  arpeggio:
+    enabled: true
+    max_gap_beats: 0.5          # [FIX] Augmenté pour musique classique (rubato Chopin)
+    min_notes: 2                # minimum de notes pour considérer un arpège
+    min_pitch_interval: 3       # minimum demi-tons entre notes
+    max_total_span_beats: 2.0   # [FIX] Augmenté pour accords brisés rapides
 
 # ─────────────────────────────────────────────────────────────────────────────
 # FILTRAGE HARMONIQUE (suppression des notes fantômes)
@@ -288,16 +312,6 @@ pipeline:
   progress_update_interval: 0.1  # secondes
   timeout_per_stage: 300  # secondes
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ORNEMENTS
-# ─────────────────────────────────────────────────────────────────────────────
-ornaments:
-  arpeggio:
-    enabled: true
-    max_gap_beats: 0.125        # double-croche max entre notes
-    min_notes: 2                # minimum de notes pour considérer un arpège
-    min_pitch_interval: 3       # minimum demi-tons entre notes
-    max_total_span_beats: 1.5   # durée totale max du groupe
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EXPORT & RENDU

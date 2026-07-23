@@ -77,6 +77,8 @@ def _init_pydantic_models():
             quantization_grid: Optional[str] = Field(default=None)  # '1/4', '1/8', '1/16', '1/32'
             strict_mode: bool = False
             tempo: Optional[float] = Field(default=None, ge=40, le=300)
+            # Protection basse (main gauche) — les notes graves avec vélocité ≤ ce seuil sont protégées
+            bass_protection_velocity: Optional[float] = Field(default=None, ge=0.05, le=1.0)
 
         def validate_transcription_options(form_data: dict):
             errors = []
@@ -459,6 +461,8 @@ def transcribe():
         'quantization_sensitivity': request.form.get('quantization_sensitivity'),
         'harmonic_filter': request.form.get('harmonic_filter', 'classical-strong'),  # défaut: classical-strong pour Chopin/Nocturnes/Mazurkas
         'strict_mode': request.form.get('strict_mode', 'false') == 'true',
+        # Protection basse (main gauche)
+        'bass_protection_velocity': request.form.get('bass_protection_velocity'),
         # NOUVEAU : paramètres de quantification fins
         'quantization_snap_threshold': request.form.get('quantization_snap_threshold'),
         'quantization_grid': request.form.get('quantization_grid'),

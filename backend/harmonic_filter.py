@@ -63,8 +63,9 @@ PEDAL_SIMULTANEITY_TOLERANCE = 0.12
 # Seuil de vélocité minimale pour une note "principale"
 MIN_MAIN_VELOCITY = 0.3
 
-# Registre des basses (notes MIDI < 36 = C1)
-BASS_THRESHOLD = 36
+# Registre des basses (notes MIDI < 55 = B1)
+# Élargi de 36 (C1) à 55 (B1) pour couvrir toute la zone de basse du piano
+BASS_THRESHOLD = 55
 
 # Seuil de vélocité pour les harmoniques de pédale
 PEDAL_HARMONIC_VELOCITY_MAX = 0.65
@@ -72,6 +73,18 @@ ULTRA_HARMONIC_VELOCITY_MAX = 0.75
 
 # Protection : notes avec vélocité > seuil sont toujours conservées
 PROTECTED_VELOCITY_THRESHOLD = 0.80
+
+# Seuil de protection des basses (main gauche)
+# Les notes graves (< BASS_THRESHOLD) avec vélocité > ce seuil sont protégées
+# car en piano, les basses sonnent naturellement fort et sont jouées avec moins
+# de force (vélocité ~25-30/127 ≈ 0.20-0.24)
+#
+# PROTECTION PROGRESSIVE (pondération) :
+# - velocity < 0.15  → protection maximale (basses jouées doucement)
+# - velocity 0.15-0.30 → protection forte (basses jouées normalement)
+# - velocity 0.30-0.50 → protection réduite mais présente
+# - velocity > 0.50  → protection faible (notes mélodiques aiguës)
+BASS_VELOCITY_PROTECTION_THRESHOLD = 0.35
 
 # Protection : notes avec duration > seuil sont des tenues expressives
 PROTECTED_DURATION_THRESHOLD = 1.5
@@ -385,7 +398,7 @@ def _filter_basic(notes: List[Dict], options: Dict) -> List[Dict]:
 
 
 def _filter_classical(notes: List[Dict], options: Dict) -> List[Dict]:
-    """Filtrage classique pour piano."""
+    """Filtrage classique pour piano — avec protection basse."""
     kept = []
     removed_indices = set()
 
@@ -398,6 +411,11 @@ def _filter_classical(notes: List[Dict], options: Dict) -> List[Dict]:
 
     for i, note in enumerate(notes):
         if i in removed_indices:
+            continue
+
+        # NOUVEAU : Protection des basses (main gauche)
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
             continue
 
         is_harmonic = False
@@ -466,6 +484,11 @@ def _filter_classical_strong(notes: List[Dict], options: Dict) -> List[Dict]:
 
     for i, note in enumerate(notes):
         if i in removed_indices:
+            continue
+
+        # NOUVEAU : Protection des basses (main gauche)
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
             continue
 
         if note['velocity'] > PROTECTED_VELOCITY_THRESHOLD:
@@ -602,6 +625,11 @@ def _filter_aggressive(notes: List[Dict], options: Dict) -> List[Dict]:
         if i in removed_indices:
             continue
 
+        # NOUVEAU : Protection des basses (main gauche)
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
+            continue
+
         if note['velocity'] > PROTECTED_VELOCITY_THRESHOLD or note['duration'] > PROTECTED_DURATION_THRESHOLD:
             kept.append(note)
             continue
@@ -677,6 +705,11 @@ def _filter_pedal_aware(notes: List[Dict], options: Dict) -> List[Dict]:
 
     for i, note in enumerate(notes):
         if i in removed_indices:
+            continue
+
+        # NOUVEAU : Protection des basses (main gauche)
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
             continue
 
         if note['velocity'] > PROTECTED_VELOCITY_THRESHOLD:
@@ -823,6 +856,11 @@ def _filter_ultra(notes: List[Dict], options: Dict) -> List[Dict]:
 
     for i, note in enumerate(notes):
         if i in removed_indices:
+            continue
+
+        # NOUVEAU : Protection des basses (main gauche)
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
             continue
 
         if note['velocity'] > PROTECTED_VELOCITY_THRESHOLD:
@@ -983,6 +1021,11 @@ def _filter_transkun(notes: List[Dict], options: Dict) -> List[Dict]:
 
     for i, note in enumerate(notes):
         if i in removed_indices:
+            continue
+
+        # NOUVEAU : Protection des basses (main gauche) — AVANT le pré-filtre min_vel
+        if _is_protected_bass_note(note, notes, options):
+            kept.append(note)
             continue
 
         # Pré-filtre : vélocité trop basse → artéfact Transkun
@@ -1155,6 +1198,137 @@ def _filter_custom(notes: List[Dict], options: Dict) -> List[Dict]:
         globals()['SIMULTANEITY_TOLERANCE'] = orig_time_tol
         globals()['BASS_THRESHOLD'] = orig_bass_thresh
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fonctions de pré-séparation LH/RH et protection des basses
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _classify_hand_guess(note: Dict, all_notes: List[Dict]) -> str:
+    """
+    Devine la main (LH ou RH) d'une note AVANT le filtrage harmonique.
+    
+    Fondé sur la réalité acoustique du piano :
+    - Main gauche : vélocité ~20-40 (notes graves sonnent fort naturellement)
+    - Main droite : vélocité ~50-100 (mélodie attaquée plus fort)
+    - Chevauchement : ~35-50 dans la zone grise [40-60]
+    
+    Règles :
+    - pitch > 65 → 'treble' (aigu, toujours RH)
+    - pitch < 36 + velocity > 0.15 → 'bass' (grave protégé)
+    - pitch [36-65] + velocity > 0.30 → 'treble' (zone grise forte)
+    - pitch [36-65] + velocity <= 0.30 → 'bass' (zone grise faible)
+    - pitch < 24 → suspect (décalage octave?)
+    
+    Returns:
+        'bass' ou 'treble'
+    """
+    if note['pitch'] > 65:
+        return 'treble'
+    
+    if note['pitch'] < 36:
+        # Grave : protégé si vélocité > 0.15 (note réelle, pas un fantôme)
+        if note['velocity'] > 0.15:
+            return 'bass'
+        # Très faible vélocité : vérifier si c'est un harmonique d'une autre basse
+        # Si aucune source grave proche → suspect
+        has_grand_source = False
+        for other in all_notes:
+            if other is note:
+                continue
+            interval = is_harmonic_of(note['pitch'], other['pitch'])
+            if interval is not None and abs(note['onset'] - other['onset']) < PEDAL_SIMULTANEITY_TOLERANCE:
+                if other['pitch'] < note['pitch'] and other['velocity'] > note['velocity']:
+                    has_grand_source = True
+                    break
+        return 'bass' if has_grand_source else 'bass'  # Par défaut grave = bass
+    
+    # Zone [36-65] : zone grise
+    if note['velocity'] > 0.30:
+        return 'treble'
+    return 'bass'
+
+
+def _is_protected_bass_note(note: Dict, all_notes: List[Dict], options: Dict) -> bool:
+    """
+    Détermine si une note grave doit être protégée (jamais supprimée).
+    
+    Une note grave est protégée si :
+    - pitch < BASS_THRESHOLD (55)
+    - velocity > BASS_VELOCITY_PROTECTION_THRESHOLD * 0.35 (seuil bas)
+    - Elle n'est pas un harmonique d'une note plus grave
+    
+    PROTECTION PROGRESSIVE :
+    - velocity < seuil * 0.35  → protection maximale (basses jouées doucement)
+    - velocity seuil * 0.35-0.50 → protection forte (basses jouées normalement)
+    - velocity > seuil * 0.50  → protection réduite mais présente
+    
+    Ce seuil est ajustable via l'UI ("Protection basse").
+    """
+    # Ne protéger que les notes graves
+    if note['pitch'] >= BASS_THRESHOLD:
+        return False
+    
+    # Récupérer le seuil depuis options (UI) ou utiliser la constante
+    bass_protection_vel = options.get('bass_protection_velocity', BASS_VELOCITY_PROTECTION_THRESHOLD)
+    
+    # Seuil bas : en dessous de 35% du seuil → protection minimale
+    low_threshold = bass_protection_vel * 0.35
+    
+    # [DEBUG] Logging pour déboguer la protection basse
+    if note['velocity'] <= 0.35 and note['pitch'] <= 55:
+        print(f"[HarmonicFilter DEBUG] bass_note pitch={note['pitch']} vel={note['velocity']:.3f} low_thresh={low_threshold:.3f} protected={note['velocity'] > low_threshold}")
+    
+    # Vérifier si c'est un harmonique d'une note plus grave
+    for other in all_notes:
+        if other is note:
+            continue
+        interval = is_harmonic_of(note['pitch'], other['pitch'])
+        if interval is not None and abs(note['onset'] - other['onset']) < PEDAL_SIMULTANEITY_TOLERANCE:
+            if other['pitch'] < note['pitch'] and other['velocity'] > note['velocity']:
+                return False  # C'est un harmonique d'une basse plus grave
+    
+    # Protection progressive basée sur la vélocité
+    # Une note grave avec vélocité > 0 est potentiellement une basse légitime
+    # Plus la vélocité est basse, plus elle est protégée (basses jouées doucement)
+    if note['velocity'] > low_threshold:
+        return True  # Basse légitime protégée
+    
+    return False
+
+
+def _correct_octave_suspect(notes: List[Dict]) -> int:
+    """
+    Corrige les notes détectées une octave trop bas.
+    
+    Conditions de correction :
+    - pitch [24-36) + velocity < 0.30 (suspect)
+    - Une note à pitch+12 existe dans le même groupe temporel
+    - Cette note +12 a velocity >= note actuelle
+    
+    Returns:
+        Nombre de corrections appliquées
+    """
+    corrections = 0
+    for note in notes:
+        if not (24 <= note['pitch'] < 36 and note['velocity'] < 0.30):
+            continue
+        
+        target = note['pitch'] + 12
+        for other in notes:
+            if other['pitch'] == target and abs(note['onset'] - other['onset']) < PEDAL_SIMULTANEITY_TOLERANCE:
+                if other['velocity'] >= note['velocity']:
+                    note['pitch'] = target
+                    corrections += 1
+                    break
+    
+    if corrections > 0:
+        print(f"[HarmonicFilter] {corrections} note(s) corrigée(s) (octave suspecte)")
+    return corrections
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fonction get_harmonic_analysis (déplacée après les nouvelles fonctions)
+# ─────────────────────────────────────────────────────────────────────────────
 
 def get_harmonic_analysis(notes: List[Dict]) -> Dict:
     """Analyse les harmoniques présents dans les notes sans les supprimer."""

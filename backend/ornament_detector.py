@@ -368,10 +368,11 @@ class OrnamentDetector:
         """
         arpeggios = []
         
+        # Les valeurs par défaut viennent de config.yaml (ornaments.arpeggio.*)
         max_gap = getattr(self.thresholds, 'arpeggio_max_gap_beats', 0.125)
         min_notes = getattr(self.thresholds, 'arpeggio_min_notes', 2)
         min_interval = getattr(self.thresholds, 'arpeggio_min_pitch_interval', 3)
-        max_span = getattr(self.thresholds, 'arpeggio_max_total_span_beats', 1.5)
+        max_span = getattr(self.thresholds, 'arpeggio_max_total_span_beats', 2.0)
         
         i = 0
         while i < len(notes):

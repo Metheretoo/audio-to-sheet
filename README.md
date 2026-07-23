@@ -60,11 +60,12 @@ L'application propose 5 presets configurés automatiquement. Voici leur configur
 
 | Mode | Transcripteur | Demucs | Quantification | Force d'alignement | Seuil de détection | Rubato | Triolets | Filtrage harmonique | Usage recommandé |
 |------|---------------|--------|----------------|-------------------|-------------|--------|----------|---------------------|------------------|
-| **Rapide** | hFT-Transformer | ❌ false | Light | 0.5 | 1.0 (max) | ❌ | ❌ | off | Aperçu immédiat sur fichier contenant uniquement du piano |
+| **Rapide** | Basic Pitch | ❌ false | Light | 0.5 | 1.0 (max) | ❌ | ❌ | off | Aperçu immédiat sur fichier contenant uniquement du piano |
 | **Équilibré** ✅ (recommandé, actif par défaut) | Transkun | ❌ false | Standard | 0.5 | 0.55 | ❌ | ❌ | off | Majority des morceaux (Pop, YouTube, etc.) |
 | **Precision** | Piano Transcription | ❌ false | Heavy | 0.90 | 0.33 (sensible) | ✅ | ✅ | transkun-chord | Partitions classiques complexes (Chopin, Debussy...) avec minimum de notes en trop |
-| **Classique** | Piano Transcription | ❌ false | Light | 1.0 | 0.33 (sensible) | ✅ | ✅ | classical | Musique classique expressif, arpèges, notes douces |
+| **Classique** | Piano Transcription | ❌ false | Light | 1.0 | 0.20 (ultra sensible) + Seuil adaptatif ✅ | ✅ | ✅ | classical | Musique classique expressif, arpèges, notes douces — **optimisé pour capter les basses** |
 | **Jazz** | Piano Transcription | ❌ false | Heavy | 0.5 | 0.67 | ❌ | ❌ | off | Morceaux swing ou à rubato, simplification pour la lecture |
+| **Studio** | Piano Transcription | ✅ true | Standard | 0.5 | 0.50 | ❌ | ❌ | off | Enregistrement studio piano solo — **nouveau mode par défaut** |
 
 > 💡 **Force d'alignement** : 0.0 = Rythme libre (brut) → 1.0 = Alignement maximal sur le preset de quantification. Pour une mazurka Chopin avec beaucoup de notes en trop, utilisez le preset **Precision** + filtrage **transkun-chord**.
 
@@ -98,6 +99,7 @@ Le filtre **transkun-chord** combine deux étapes :
 
 - **Piano Transcription** (recommandé) : Entraîné spécifiquement sur le piano, meilleur pour accords complexes
 - **Transkun** (expressivité maximale) : Modèle Transformer SOTA avec haute précision expressive, idéal pour partitions classiques complexes
+- **Basic Pitch** (rapide) : Modèle de Spotify, rapide et léger, idéal pour un aperçu immédiat
 - **hFT-Transformer** (Sony) : Modèle de transcription audio à base de Transformer, performant sur la détection de notes et de pédales
 
 #### Isolation du piano (Demucs)
@@ -169,7 +171,10 @@ Le filtre **transkun-chord** combine deux étapes :
 | Tempo (manuel) | Surcharger le tempo détecté (40-300 BPM) |
 | Mesure | 4/4, 3/4, 2/4, 3/8, 6/8, 9/8, 12/8 |
 | Tonalité/Armure | Surcharger la tonalité détectée (13 options) |
-| Sensibilité de détection | Ajuste la sensibilité (0.10-0.90). Plus c'est haut, plus la détection est stricte (moins de notes) |
+| Seuil de détection | Ajuste la sensibilité (0.20-0.85). Plus c'est bas, plus la détection est sensible (plus de notes, y compris les notes douces). Par défaut : 0.55 (Équilibré) |
+| 🎹 Seuil adaptatif basses/aigus | **Activé par défaut**. Réduit le seuil de détection des notes graves (main gauche, pitch < 55) pour capter les attaques douces. Les aigus conservent le seuil utilisateur. |
+| Seuil basses (main gauche) | Ajuste le seuil minimum pour les graves (0.05-0.85, défaut 0.15). Plus c'est bas, plus les basses douces sont détectées. |
+| Protection basse (main gauche) | Pondération de la vélocité minimale pour les notes graves (0.00-1.00). Les notes graves < 0.35 sont forcées à 0.35 pour survivre au filtrage harmonique. |
 | Force d'alignement | Ajuste l'intensité de l'alignement rythmique (0.00-1.00). 0.0 = Rythme libre (brut) → 1.0 = Alignement maximal sur le preset de quantification sélectionné |
 
 ### 7. Transcription
