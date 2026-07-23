@@ -182,6 +182,9 @@ function initUploadZone() {
     if (sliderPanel) sliderPanel.style.display = 'none';
     const warnPanel = document.getElementById('transcription-warnings');
     if (warnPanel) warnPanel.style.display = 'none';
+    // Remasquer la section "Affichage de la partition" (visible uniquement après transcription)
+    const displaySettings = document.querySelector('.show-before-score');
+    if (displaySettings) displaySettings.style.display = 'none';
   });
 }
 
@@ -524,13 +527,19 @@ function initTranscriptionOptions() {
     });
   }
 
-  // Listener pour le slider "Protection basse" — affichage de la valeur
+  // Listener pour le slider "Protection basse" — affichage de la valeur avec labels
   const bassProtectionSlider = document.getElementById('bass-protection');
   const bassProtectionDisplay = document.getElementById('bass-protection-display');
   if (bassProtectionSlider && bassProtectionDisplay) {
     bassProtectionSlider.addEventListener('input', () => {
-      bassProtectionDisplay.textContent = parseFloat(bassProtectionSlider.value).toFixed(2);
+      const val = parseFloat(bassProtectionSlider.value);
+      let label = 'Faible';
+      if (val >= 0.55) label = 'Forte';
+      else if (val >= 0.25) label = 'Moyenne';
+      bassProtectionDisplay.textContent = label;
     });
+    // Initialiser le label au chargement
+    bassProtectionDisplay.textContent = 'Moyenne';
   }
 
   // Listener pour le select time-sig : marquer l'override utilisateur et sauvegarder

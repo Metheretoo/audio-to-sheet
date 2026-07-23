@@ -248,13 +248,13 @@
               <div class="setting-item" title="Protège les notes graves (main gauche) en fonction de leur vélocité.&#10;• En piano, les basses sonnent naturellement fort et sont jouées avec moins de force (vélocité ~25-30/127 ≈ 0.20-0.24).&#10;• Les notes graves AU-DESSUS de ce seuil sont protégées et jamais supprimées par le filtrage.&#10;• Augmentez ce seuil si vous perdez des notes de basse légitimes.&#10;• Valeur recommandée : 0.30-0.50 pour un équilibre, > 0.60 pour une protection maximale.">
                 <label class="setting-label">
                   🎹 Protection basse (main gauche)
-                  <span id="bass-protection-display" class="threshold-val">0.35</span>
+                  <span id="bass-protection-display" class="threshold-val">Moyenne</span>
                 </label>
                 <input type="range" id="bass-protection" class="range-field" min="0.00" max="1.00" step="0.05"
                   value="0.35" aria-label="Seuil de protection des basses" />
                 <div class="range-labels">
-                  <span>0.00 (protège moins)</span>
-                  <span>1.00 (protège plus)</span>
+                  <span>Faible</span>
+                  <span>Forte</span>
                 </div>
                 <small class="setting-hint">Notes graves au-dessus de ce seuil de vélocité sont protégées (main gauche légitime)</small>
               </div>
@@ -346,16 +346,16 @@
               <small class="setting-hint">Surcharger la tonalité détectée</small>
             </div>
 
-            <div class="setting-item" title="Ajuste directement le seuil de détection des attaques de notes par l'IA.&#10;• Valeur basse (0.20) : capte les notes très douces, mais risque de fausses détections.&#10;• Valeur haute (0.85) : plus strict, ignore le bruit de fond, mais risque de manquer des notes faibles.&#10;• Recommandé : 0.40-0.50 pour la plupart des fichiers.">
+              <div class="setting-item" title="Ajuste directement le seuil de détection des attaques de notes par l'IA.&#10;• Valeur basse (0.20) : capte les notes très douces, mais risque de fausses détections.&#10;• Valeur haute (0.85) : plus strict, ignore le bruit de fond, mais risque de manquer des notes faibles.&#10;• Recommandé : 0.40-0.50 pour la plupart des fichiers.">
               <label for="onset-threshold" class="setting-label">
-                Seuil de détection
+                Sensibilité globale
                 <span id="threshold-display" class="threshold-val">0.50</span>
               </label>
               <input type="range" id="onset-threshold" class="range-field" min="0.20" max="0.85" step="0.01"
                 value="0.50" aria-label="Seuil de détection des notes" />
               <div class="range-labels">
-                <span>0.20 (flexible)</span>
-                <span>0.85 (strict)</span>
+                <span>Maximale</span>
+                <span>Réduite</span>
               </div>
             </div>
 
@@ -370,16 +370,15 @@
 
             <div class="setting-item" id="adaptive-bass-threshold-item" style="display:block;">
               <label class="setting-label">
-                Seuil basses (main gauche)
+                Sensibilité basses
                 <span id="bass-onset-threshold-display" class="threshold-val">0.15</span>
               </label>
               <input type="range" id="bass-onset-threshold" class="range-field" min="0.05" max="0.85" step="0.01"
                 value="0.15" aria-label="Seuil de détection pour les basses" />
               <div class="range-labels">
-                <span>0.05 (ultra sensible)</span>
-                <span>0.85 (strict)</span>
+                <span>Maximale</span>
+                <span>Réduite</span>
               </div>
-              <small class="setting-hint">Seuil spécifique pour les notes graves (< BASS_ANCHOR≈55). Plus bas = capte les attaques plus douces.</small>
             </div>
 
           </div>
@@ -390,15 +389,15 @@
           <span class="setting-label">🎼 Affichage de la partition</span>
           <div class="checkbox-group">
             <label class="checkbox-label-premium" title="Affiche/masque les annotations de pédale forte (Ped. / *) sans avoir besoin de relancer la transcription.">
-              <input type="checkbox" id="show-pedal" checked />
+              <input type="checkbox" id="show-pedal" />
               <span>Pédale</span>
             </label>
             <label class="checkbox-label-premium" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée, disponible pour tous les presets, pas seulement Jazz. Ne nécessite pas de relancer la transcription.">
-              <input type="checkbox" id="show-chords" checked />
+              <input type="checkbox" id="show-chords" />
               <span>Noms d'accords</span>
             </label>
             <label class="checkbox-label-premium" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) entre la portée et les accords, pour aider les débutants. Ne nécessite pas de relancer la transcription.">
-              <input type="checkbox" id="show-highest-note" checked />
+              <input type="checkbox" id="show-highest-note" />
               <span>Note la plus haute</span>
             </label>
           </div>
@@ -523,18 +522,18 @@
 
         <div class="tool-group tool-group-display">
           <span class="tool-group-label">Affichage</span>
-          <label class="display-toggle" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée">
-            <input type="checkbox" id="show-chords-toolbar" checked />
-            <span>Accords</span>
-          </label>
-          <label class="display-toggle" title="Affiche/masque les annotations de pédale forte (Ped. / *)">
-            <input type="checkbox" id="show-pedal-toolbar" checked />
-            <span>Pédale</span>
-          </label>
-          <label class="display-toggle" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) au-dessus de la portée">
-            <input type="checkbox" id="show-highest-note-toolbar" checked />
-            <span>Note la plus haute</span>
-          </label>
+           <label class="display-toggle" title="Affiche/masque les noms d'accords (ex: Cm7, G7) au-dessus de la portée">
+             <input type="checkbox" id="show-chords-toolbar" />
+             <span>Accords</span>
+           </label>
+           <label class="display-toggle" title="Affiche/masque les annotations de pédale forte (Ped. / *)">
+             <input type="checkbox" id="show-pedal-toolbar" />
+             <span>Pédale</span>
+           </label>
+           <label class="display-toggle" title="Affiche/masque le nom de la note la plus haute (ex: Sol 5) au-dessus de la portée">
+             <input type="checkbox" id="show-highest-note-toolbar" />
+             <span>Note la plus haute</span>
+           </label>
         </div>
 
         <div class="tool-group tool-group-play">

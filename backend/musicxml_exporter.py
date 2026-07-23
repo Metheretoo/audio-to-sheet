@@ -297,7 +297,12 @@ def export_musicxml(score_data: Dict[str, Any], output_path: str):
                 for pitch_str in pitches:
                     parts = pitch_str.split('/')
                     step_char = parts[0][0].upper() if parts[0] else 'C'
-                    octave = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 3
+                    # Conversion octave VexFlow → octave MusicXML (scientifique)
+                    # VexFlow : c/3 = MIDI 60 (C4 = Do central)
+                    # MusicXML : octave 4 = C4 (Do central)
+                    # Donc : musicxml_octave = vexflow_octave + 1
+                    vexflow_oct = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 3
+                    octave = vexflow_oct + 1
                     alter = 0
                     if len(parts[0]) > 1:
                         if parts[0][-1] == '#':

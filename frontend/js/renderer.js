@@ -642,8 +642,22 @@ class ScoreRenderer {
     // Cela résout le bug où la direction changeait aléatoirement selon la hauteur de la note.
     const stem_direction = hand === 'treble' ? 1 : -1;
 
+    // Correction octave pour la clé de Fa (bass clef)
+    // VexFlow interprète les octaves une octave trop bas avec la clef de Fa.
+    // On ajoute +1 à l'octave pour compenser.
+    let keys = nd.keys;
+    if (hand === 'bass') {
+      keys = nd.keys.map(k => {
+        const parts = k.split('/');
+        if (parts.length === 2 && !isNaN(parseInt(parts[1]))) {
+          return parts[0] + '/' + (parseInt(parts[1]) + 1);
+        }
+        return k;
+      });
+    }
+
     const sn = new VF.StaveNote({
-      keys: nd.keys,
+      keys: keys,
       duration: duration,
       dots: nd.dots || 0,
       clef: hand,
