@@ -351,7 +351,19 @@ audio-to-sheet/
 
 > **Aucun nouveau package n'est nécessaire** pour le filtrage harmonique. Le module `harmonic_filter.py` utilise uniquement `numpy` (déjà dans les dépendances).
 >
-> ⚠️ **hFT-Transformer** : Ce modèle doit être cloné manuellement dans le dossier `backend/hft_transformer/` depuis https://github.com/qiuqiangkong/hft-transformer. Il n'est pas installé via pip.
+> ⚠️ **hFT-Transformer** (Sony) : Ce modèle doit être cloné manuellement dans le dossier `backend/hft_transformer/` depuis le dépôt officiel https://github.com/sony/hFT-Transformer. Il n'est pas installé via pip.
+>
+> **Installation de hFT-Transformer** :
+> ```bash
+> # Dans le dossier backend/
+> git clone https://github.com/sony/hFT-Transformer.git hft_transformer
+> cd hft_transformer
+> pip install -r requirements.txt
+> # Télécharger les poids pré-entraînés (MAESTRO-V3)
+> wget https://github.com/sony/hFT-Transformer/releases/download/ismir2023/checkpoint.zip
+> unzip checkpoint.zip
+> # Les poids seront dans checkpoint/MAESTRO-V3/
+> ```
 
 ---
 
